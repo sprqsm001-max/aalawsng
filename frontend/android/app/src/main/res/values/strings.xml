@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">AALAWSNG</string>
+    <string name="title_activity_main">AALAWSNG</string>
+    <string name="package_name">com.aalawsng.portal</string>
+    <string name="custom_url_scheme">com.aalawsng.portal</string>
+</resources>

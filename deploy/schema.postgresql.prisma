@@ -1,0 +1,584 @@
+// AALAWSNG — Law Firm Management System
+// Full Database Schema — Nigerian Legal Practice Framework (LPAR 1964, RPC 2023, AML/CFT)
+// Configured for SQLite (Local Development & Testing)
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// CORE USER & AUTHENTICATION MODELS
+// ============================================================
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  tier         String    @default("STAFF") // ADMIN, STAFF, CLIENT
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  staffProfile  StaffProfile?
+  clientProfile ClientRecord?
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+  sessions      UserSession[]
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+}
+
+model UserSession {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshToken String    @unique
+  ipAddress    String?
+  userAgent    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+}
+
+model RolePermission {
+  id        String    @id @default(uuid())
+  role      String    // ATTORNEY, PARALEGAL, BILLING_STAFF, ADMIN_STAFF, ASSOCIATE
+  module    String
+  canRead   Boolean   @default(false)
+  canWrite  Boolean   @default(false)
+  canAdmin  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([role, module])
+}
+
+// ============================================================
+// M11 & M13: STAFF & HR MODELS
+// ============================================================
+
+model StaffProfile {
+  id              String      @id @default(uuid())
+  userId          String      @unique
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName       String
+  lastName        String
+  role            String      @default("ATTORNEY")
+  phone           String?
+  barNumber       String?
+  nbaBranch       String?
+  hourlyRate      Float       @default(50000.0)
+  currency        String      @default("NGN") // NGN, USD, GBP, EUR
+  department      String?
+  employmentDate  DateTime    @default(now())
+  annualLeaveDays Int         @default(20)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  assignedMatters       MatterAssignment[]
+  assignedTasks         Task[]               @relation("TaskAssignee")
+  createdTasks          Task[]               @relation("TaskCreator")
+  timeEntries           TimeEntry[]
+  expenses              Expense[]
+  calendarEvents        CalendarEvent[]      @relation("EventOrganizer")
+  eventAttendees        CalendarAttendee[]
+  leaveRequests         LeaveRequest[]       @relation("StaffLeaves")
+  approvedLeaves        LeaveRequest[]       @relation("ApprovedLeaves")
+  internalSentMsgs      InternalMessage[]    @relation("SentInternalMsgs")
+  internalRecvMsgs      InternalMessage[]    @relation("RecvInternalMsgs")
+  clientMessages        ClientMessage[]
+  conflictChecksChecked ConflictCheck[]
+  documentsUploaded     Document[]           @relation("DocumentUploader")
+}
+
+model LeaveRequest {
+  id           String       @id @default(uuid())
+  staffId      String
+  staff        StaffProfile @relation("StaffLeaves", fields: [staffId], references: [id], onDelete: Cascade)
+  leaveType    String       // ANNUAL, SICK, MATERNITY, PATERNITY, COMPASSIONATE, STUDY, UNPAID
+  startDate    DateTime
+  endDate      DateTime
+  daysCount    Int
+  reason       String?
+  status       String       @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  reviewedById String?
+  reviewedBy   StaffProfile? @relation("ApprovedLeaves", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  rejectionReason String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+// ============================================================
+// M01: CLIENT & CONTACT MANAGEMENT (CRM) — NIGERIAN AML/KYC
+// ============================================================
+
+model ClientRecord {
+  id                       String       @id @default(uuid())
+  userId                   String?      @unique
+  user                     User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  firstName                String
+  lastName                 String
+  companyName              String?
+  email                    String       @unique
+  phone                    String?      @default("")
+  address                  String?
+  city                     String?      @default("Lagos")
+  state                    String?      @default("Lagos State")
+  country                  String?      @default("Nigeria")
+  intakeDate               DateTime     @default(now())
+  dateOfBirth              DateTime?
+
+  kycStatus                String       @default("PENDING") // PENDING, VERIFIED, REJECTED, EXPIRED
+  idType                   String?      @default("NIN")
+  idNumber                 String?
+  tin                      String?
+  rcNumber                 String?
+  sourceOfFundsDeclaration String?
+  pepStatus                Boolean      @default(false)
+  riskRating               String       @default("LOW") // LOW, MEDIUM, HIGH
+
+  notes                    String?
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+
+  matters                  Matter[]
+  invoices                 Invoice[]
+  trustLedgers             TrustLedgerAccount[]
+  contactHistory           ClientContactHistory[]
+  conflictChecks           ConflictCheck[]
+  clientMessages           ClientMessage[]
+}
+
+model ClientContactHistory {
+  id        String       @id @default(uuid())
+  clientId  String
+  client    ClientRecord @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contactType String
+  summary   String
+  loggedBy  String
+  loggedAt  DateTime     @default(now())
+}
+
+// ============================================================
+// M02: MATTER / CASE MANAGEMENT
+// ============================================================
+
+model MatterType {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  matters     Matter[]
+}
+
+model Matter {
+  id                  String       @id @default(uuid())
+  referenceNumber     String       @unique
+  title               String
+  description         String?
+  matterTypeId        String
+  matterType          MatterType   @relation(fields: [matterTypeId], references: [id])
+  clientId            String
+  client              ClientRecord @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  leadAttorneyId      String?
+  status              String       @default("OPEN") // INTAKE, OPEN, IN_PROGRESS, PENDING, CLOSED, ARCHIVED
+  currency            String       @default("NGN")
+  courtJurisdiction   String?
+  courtCaseNumber     String?
+  opposingPartyName   String?
+  opposingCounselName String?
+  budgetAmount        Float?
+  estimatedHours      Float?
+  openedAt            DateTime     @default(now())
+  closedAt            DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  assignedStaff       MatterAssignment[]
+  documents           Document[]
+  tasks               Task[]
+  timeEntries         TimeEntry[]
+  invoices            Invoice[]
+  expenses            Expense[]
+  calendarEvents      CalendarEvent[]
+  conflictChecks      ConflictCheck[]
+  clientMessages      ClientMessage[]
+  matterTrustLedger   TrustLedgerAccount?
+}
+
+model MatterAssignment {
+  id        String       @id @default(uuid())
+  matterId  String
+  matter    Matter       @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  isPrimary Boolean      @default(false)
+  assignedAt DateTime    @default(now())
+
+  @@unique([matterId, staffId])
+}
+
+// ============================================================
+// M03: DOCUMENT MANAGEMENT
+// ============================================================
+
+model Document {
+  id             String             @id @default(uuid())
+  matterId       String
+  matter         Matter             @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  uploadedById   String
+  uploadedBy     StaffProfile       @relation("DocumentUploader", fields: [uploadedById], references: [id])
+  title          String
+  description    String?
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  filePath       String
+  version        Int                @default(1)
+  visibility     String             @default("INTERNAL") // INTERNAL, CLIENT_VISIBLE
+  tags           String?
+  checksum       String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+}
+
+// ============================================================
+// M04: CALENDAR & COURT DEADLINES
+// ============================================================
+
+model CalendarEvent {
+  id           String            @id @default(uuid())
+  title        String
+  description  String?
+  eventType    String            @default("OTHER") // COURT_DATE, STATUTE_DEADLINE, TASK_DUE, MEETING, FILING_DEADLINE, HEARING, DEPOSITION, OTHER
+  isHardDeadline Boolean         @default(false)
+  eventDate    DateTime
+  endDate      DateTime?
+  location     String?
+  matterId     String?
+  matter       Matter?           @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  organizerId  String
+  organizer    StaffProfile      @relation("EventOrganizer", fields: [organizerId], references: [id])
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  attendees    CalendarAttendee[]
+}
+
+model CalendarAttendee {
+  id        String        @id @default(uuid())
+  eventId   String
+  event     CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  staffId   String
+  staff     StaffProfile  @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, staffId])
+}
+
+// ============================================================
+// M05 & M12: TASKS & WORKFLOW MANAGEMENT
+// ============================================================
+
+model Task {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  matterId    String?
+  matter      Matter?      @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   StaffProfile @relation("TaskCreator", fields: [createdById], references: [id])
+  assigneeId  String?
+  assignee    StaffProfile? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  status      String       @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, CANCELLED
+  priority    String       @default("MEDIUM")  // LOW, MEDIUM, HIGH, URGENT
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+// ============================================================
+// M06: TIME TRACKING & RATE TABLES
+// ============================================================
+
+model TimeEntry {
+  id           String       @id @default(uuid())
+  matterId     String
+  matter       Matter       @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  staffId      String
+  staff        StaffProfile @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  description  String
+  hours        Float
+  hourlyRate   Float
+  totalAmount  Float
+  currency     String       @default("NGN")
+  dateWorked   DateTime     @default(now())
+  isBillable   Boolean      @default(true)
+  isBilled     Boolean      @default(false)
+  invoiceId    String?
+  invoice      Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+// ============================================================
+// M07: INVOICING & BILLING (PAYSTACK & MULTI-CURRENCY)
+// ============================================================
+
+model Invoice {
+  id                  String             @id @default(uuid())
+  invoiceNumber       String             @unique
+  matterId            String?
+  matter              Matter?            @relation(fields: [matterId], references: [id], onDelete: SetNull)
+  clientId            String
+  client              ClientRecord       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  currency            String             @default("NGN")
+  subtotal            Float              @default(0)
+  taxAmount           Float              @default(0)
+  discountAmount      Float              @default(0)
+  totalAmount         Float              @default(0)
+  amountPaid          Float              @default(0)
+  status              String             @default("DRAFT") // DRAFT, SENT, PARTIALLY_PAID, PAID, OVERDUE, CANCELLED, VOID
+  paymentDestination  String             @default("OFFICE_ACCOUNT") // OFFICE_ACCOUNT, CLIENT_ACCOUNT, TRUST_ACCOUNT
+  dueDate             DateTime
+  sentAt              DateTime?
+  paidAt              DateTime?
+  notes               String?
+  createdById         String
+
+  paystackReference   String?            @unique
+  paystackAccessCode  String?
+  paystackChannel     String?
+  paymentLinkUrl      String?
+
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  lineItems           InvoiceLineItem[]
+  payments            InvoicePayment[]
+  timeEntries         TimeEntry[]
+  expenses            Expense[]
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Float    @default(1)
+  unitPrice   Float
+  amount      Float
+  type        String   @default("PROFESSIONAL_FEES")
+}
+
+model InvoicePayment {
+  id                String       @id @default(uuid())
+  invoiceId         String
+  invoice           Invoice      @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount            Float
+  currency          String       @default("NGN")
+  paymentDate       DateTime     @default(now())
+  paymentMethod     String       @default("PAYSTACK")
+  transactionRef    String?
+  destinationLedger String       @default("OFFICE_ACCOUNT")
+  recordedBy        String
+  createdAt         DateTime     @default(now())
+}
+
+// ============================================================
+// M08: CLIENT & TRUST ACCOUNTING (NIGERIAN LPAR 1964 & RPC 2023)
+// ============================================================
+
+model TrustJurisdictionConfig {
+  id                          String   @id @default("default-nba-nigeria")
+  jurisdiction                String   @default("NBA_LAGOS")
+  governingRules              String   @default("Legal Practitioners' Accounts Rules 1964 & RPC 2023")
+  amlThresholdNgn             Float    @default(5000000.0)
+  amlThresholdUsd             Float    @default(10000.0)
+  interestHandling            String   @default("CLIENT")
+  reportingFrequency          String   @default("MONTHLY")
+  requiresThreeWayRecon       Boolean  @default(true)
+  requirePartnerAuthorization Boolean  @default(true)
+  notes                       String?
+  updatedAt                   DateTime @updatedAt
+}
+
+model TrustLedgerAccount {
+  id                String              @id @default(uuid())
+  clientId          String
+  client            ClientRecord        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  matterId          String?             @unique
+  matter            Matter?             @relation(fields: [matterId], references: [id], onDelete: SetNull)
+  accountCategory   String              @default("CLIENT_FUNDS") // CLIENT_FUNDS, OFFICE_FUNDS, TRUST_FUNDS
+  currency          String              @default("NGN") // NGN, USD, GBP, EUR
+  balance           Float               @default(0.0)
+  bankAccountNumber String?
+  bankName          String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  journalEntries    TrustJournalEntry[]
+
+  @@unique([clientId, currency, accountCategory])
+}
+
+model TrustJournalEntry {
+  id                     String                 @id @default(uuid())
+  ledgerId               String
+  ledger                 TrustLedgerAccount     @relation(fields: [ledgerId], references: [id], onDelete: Cascade)
+  type                   String                 // DEPOSIT, WITHDRAWAL, TRANSFER_TO_OPERATING, TRANSFER_FROM_OPERATING, EARNED_FEE_TRANSFER, DISBURSEMENT_PAYMENT, RECEIPT_CLIENT_FUNDS, PAYMENT_CLIENT_FUNDS, INTEREST_ALLOCATION, REFUND_TO_CLIENT
+  amount                 Float
+  currency               String                 @default("NGN")
+  balanceBefore          Float
+  balanceAfter           Float
+  description            String
+  referenceType          String?
+  referenceId            String?
+  lparRuleReference      String?                @default("LPAR 1964 Rule 3")
+  partnerAuthorizedById  String?
+  partnerAuthorizedAt    DateTime?
+  deliveredInvoiceNumber String?
+  paystackReference      String?
+  isAmlReportable        Boolean                @default(false)
+  scumlReportReference   String?
+  initiatedById          String
+  createdAt              DateTime               @default(now())
+}
+
+model TrustReconciliation {
+  id                String              @id @default(uuid())
+  accountCategory   String              @default("CLIENT_FUNDS")
+  currency          String              @default("NGN")
+  bankBalance       Float
+  ledgerSum         Float
+  systemTotal       Float
+  isMatched         Boolean             @default(true)
+  discrepancyAmount Float               @default(0.0)
+  reconciledById    String
+  reconciledAt      DateTime            @default(now())
+  notes             String?
+}
+
+// ============================================================
+// M09: EXPENSE MANAGEMENT & DISBURSEMENTS
+// ============================================================
+
+model Expense {
+  id           String          @id @default(uuid())
+  matterId     String?
+  matter       Matter?         @relation(fields: [matterId], references: [id], onDelete: SetNull)
+  staffId      String
+  staff        StaffProfile    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  category     String          @default("MISCELLANEOUS") // FILING_FEE, COURT_COST, TRAVEL, COURIER, EXPERT_WITNESS, OFFICE_SUPPLIES, SOFTWARE_SUBSCRIPTION, PROFESSIONAL_DUES, MISCELLANEOUS
+  description  String
+  amount       Float
+  currency     String          @default("NGN")
+  expenseDate  DateTime        @default(now())
+  receiptUrl   String?
+  isBillable   Boolean         @default(true)
+  isReimbursed Boolean         @default(false)
+  invoiceId    String?
+  invoice      Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+}
+
+// ============================================================
+// M15 & M16: MESSAGING & COMMUNICATIONS
+// ============================================================
+
+model InternalMessage {
+  id          String       @id @default(uuid())
+  senderId    String
+  sender      StaffProfile @relation("SentInternalMsgs", fields: [senderId], references: [id], onDelete: Cascade)
+  recipientId String
+  recipient   StaffProfile @relation("RecvInternalMsgs", fields: [recipientId], references: [id], onDelete: Cascade)
+  subject     String
+  body        String
+  isRead      Boolean      @default(false)
+  readAt      DateTime?
+  createdAt   DateTime     @default(now())
+}
+
+model ClientMessage {
+  id           String        @id @default(uuid())
+  matterId     String?
+  matter       Matter?       @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  clientId     String
+  client       ClientRecord  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  staffId      String?
+  staff        StaffProfile? @relation(fields: [staffId], references: [id], onDelete: SetNull)
+  sentByClient Boolean       @default(false)
+  subject      String
+  body         String
+  isRead       Boolean       @default(false)
+  readAt       DateTime?
+  createdAt    DateTime      @default(now())
+}
+
+// ============================================================
+// M18: CONFLICT OF INTEREST CHECKING
+// ============================================================
+
+model ConflictCheck {
+  id              String         @id @default(uuid())
+  clientId        String?
+  client          ClientRecord?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  matterId        String?
+  matter          Matter?        @relation(fields: [matterId], references: [id], onDelete: SetNull)
+  searchTerm      String
+  status          String         @default("PENDING_REVIEW") // PENDING_REVIEW, CLEARED, POTENTIAL_CONFLICT, CONFIRMED_CONFLICT, WAIVER_OBTAINED
+  findings        String?
+  checkedById     String
+  checkedBy       StaffProfile   @relation(fields: [checkedById], references: [id])
+  checkedAt       DateTime       @default(now())
+  clearedAt       DateTime?
+  clearedById     String?
+  waiverDocument  String?
+}
+
+// ============================================================
+// M20: AUDIT LOGGING & NOTIFICATIONS
+// ============================================================
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String      // CREATE, UPDATE, DELETE, LOGIN, LOGOUT, EXPORT, TRUST_TRANSFER, PAYMENT_RECEIVED, PERMISSION_CHANGE, DOCUMENT_VIEW, CONFLICT_OVERRIDE
+  entityType String
+  entityId   String?
+  module     String      @default("M20")
+  oldValue   String?
+  newValue   String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("INFO")
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

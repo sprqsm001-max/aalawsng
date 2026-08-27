@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # ─── PostgreSQL Database (Production) ───────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: aalawsng_postgres_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-aalawsng_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-aalawsng_secure_prod_password_2024}
+      POSTGRES_DB: ${DB_NAME:-aalawsng_db}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    networks:
+      - aalawsng_internal_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-aalawsng_user} -d ${DB_NAME:-aalawsng_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Express API Backend ──────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    container_name: aalawsng_backend_prod
+    restart: always
+    ports:
+      - "127.0.0.1:5000:5000"
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-aalawsng_user}:${DB_PASSWORD:-aalawsng_secure_prod_password_2024}@postgres:5432/${DB_NAME:-aalawsng_db}?schema=public
+      PORT: 5000
+      NODE_ENV: production
+      FRONTEND_URL: ${FRONTEND_URL:-http://145.239.78.148}
+      JWT_SECRET: ${JWT_SECRET:-c8e192f89d6e4a2c91837b01934e8f19283746a5b6c7d8e9f0123456789abcde}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a09876543210fedcba98765432}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      PAYSTACK_PUBLIC_KEY: ${PAYSTACK_PUBLIC_KEY:-}
+      DEFAULT_CURRENCY: NGN
+      SUPPORTED_CURRENCIES: NGN,USD,GBP,EUR
+      SCUML_THRESHOLD_NGN: 5000000
+      SCUML_THRESHOLD_USD: 10000
+      MAX_FILE_SIZE_MB: 50
+    volumes:
+      - document_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aalawsng_internal_network
+
+  # ─── Next.js Frontend ─────────────────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: aalawsng_frontend_prod
+    restart: always
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://145.239.78.148/api/v1}
+      PORT: 3000
+    depends_on:
+      - backend
+    networks:
+      - aalawsng_internal_network
+
+volumes:
+  postgres_prod_data:
+  document_uploads:
+
+networks:
+  aalawsng_internal_network:
+    driver: bridge
