@@ -12,6 +12,7 @@ export default function MessagesPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [unread, setUnread] = useState(0);
+  const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ recipientId:'', subject:'', body:'' });
@@ -22,12 +23,15 @@ export default function MessagesPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const [msgsRes, unreadRes] = await Promise.all([
+      const [msgsRes, unreadRes, staffRes] = await Promise.all([
         api.get('/internal-messages?limit=30'),
         api.get('/internal-messages/unread-count'),
+        api.get('/staff?limit=100'),
       ]);
-      setMessages(msgsRes.data.messages||[]); setTotal(msgsRes.data.total||0);
-      setUnread(unreadRes.data.unreadCount||0);
+      setMessages(msgsRes.data.messages || []);
+      setTotal(msgsRes.data.total || 0);
+      setUnread(unreadRes.data.unreadCount || 0);
+      setStaffList(staffRes.data.staff || []);
     } catch {}
     setLoading(false);
   };
@@ -37,13 +41,18 @@ export default function MessagesPage() {
   };
 
   const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!form.recipientId) {
+      alert('Please select a recipient');
+      return;
+    }
+    setSaving(true);
     try {
       await api.post('/internal-messages', form);
       setShowModal(false);
       setForm({ recipientId:'', subject:'', body:'' });
       load();
-    } catch (err:any) { alert(err.response?.data?.error||'Failed to send'); }
+    } catch (err:any) { alert(err.response?.data?.error || 'Failed to send'); }
     setSaving(false);
   };
 
@@ -101,7 +110,22 @@ export default function MessagesPage() {
             <h2 style={{fontFamily:'Inter,sans-serif',fontSize:'18px',fontWeight:700,marginBottom:'4px'}}>Compose Internal Message</h2>
             <p style={{fontSize:'12px',color:'var(--text-muted)',marginBottom:'20px'}}>This channel is for staff use only. Client users cannot receive internal messages.</p>
             <form onSubmit={handleSend} style={{display:'flex',flexDirection:'column',gap:'14px'}}>
-              <div className="form-group"><label className="form-label">Recipient (User ID) *</label><input className="form-input" required value={form.recipientId} onChange={e=>setForm(f=>({...f,recipientId:e.target.value}))} placeholder="UUID"/></div>
+              <div className="form-group">
+                <label className="form-label">Recipient Staff Member *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.recipientId}
+                  onChange={e => setForm(f => ({ ...f, recipientId: e.target.value }))}
+                >
+                  <option value="">Select a colleague…</option>
+                  {staffList.map((s: any) => (
+                    <option key={s.id} value={s.id}>
+                      {s.firstName} {s.lastName} ({s.role || s.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-group"><label className="form-label">Subject *</label><input className="form-input" required value={form.subject} onChange={e=>setForm(f=>({...f,subject:e.target.value}))}/></div>
               <div className="form-group"><label className="form-label">Message *</label><textarea className="form-input" required rows={4} value={form.body} onChange={e=>setForm(f=>({...f,body:e.target.value}))} style={{resize:'none'}}/></div>
               <div style={{display:'flex',gap:'10px',justifyContent:'flex-end'}}>

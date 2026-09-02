@@ -26,16 +26,21 @@ export default function InvoicesPage() {
   const [currencyFilter, setCurrencyFilter] = useState('ALL');
   const [showModal, setShowModal] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [clients, setClients] = useState<any[]>([]);
+  const [matters, setMatters] = useState<any[]>([]);
 
   const [form, setForm] = useState({
     clientId: '',
     matterId: '',
     currency: 'NGN',
-    lineItems: '',
-    dueDate: '',
+    dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
     paymentDestination: 'OFFICE_ACCOUNT',
-    notes: '',
+    notes: 'Payment due within 14 days',
   });
+
+  const [lineItems, setLineItems] = useState([
+    { description: 'Professional Legal Representation & Advisory', quantity: 1, unitPrice: 250000 },
+  ]);
 
   const [saving, setSaving] = useState(false);
 
@@ -47,15 +52,19 @@ export default function InvoicesPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(
-        `/invoices?limit=50${statusFilter ? `&status=${statusFilter}` : ''}`
-      );
-      let list = data.invoices || [];
+      const [invRes, cRes, mRes] = await Promise.all([
+        api.get(`/invoices?limit=50${statusFilter ? `&status=${statusFilter}` : ''}`),
+        api.get('/clients?limit=100'),
+        api.get('/matters?limit=100'),
+      ]);
+      let list = invRes.data.invoices || [];
       if (currencyFilter !== 'ALL') {
         list = list.filter((i: any) => i.currency === currencyFilter);
       }
       setInvoices(list);
-      setTotal(data.total || 0);
+      setTotal(invRes.data.total || 0);
+      setClients(cRes.data.clients || []);
+      setMatters(mRes.data.matters || []);
     } catch {}
     setLoading(false);
   };
@@ -89,20 +98,25 @@ export default function InvoicesPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!form.clientId) {
+      alert('Please select a client for this invoice');
+      return;
+    }
     setSaving(true);
     try {
-      let lineItems = [];
-      try {
-        lineItems = JSON.parse(form.lineItems);
-      } catch {
-        lineItems = [{ description: 'Professional Legal Services', quantity: 1, unitPrice: 250000 }];
-      }
+      const formattedItems = lineItems.map(li => ({
+        description: li.description || 'Legal Services Rendered',
+        quantity: Number(li.quantity) || 1,
+        unitPrice: Number(li.unitPrice) || 0,
+        amount: (Number(li.quantity) || 1) * (Number(li.unitPrice) || 0),
+      }));
 
       await api.post('/invoices', {
         clientId: form.clientId,
-        matterId: form.matterId,
+        matterId: form.matterId || undefined,
         currency: form.currency,
-        lineItems,
+        lineItems: formattedItems,
+        extraLineItems: formattedItems,
         dueDate: form.dueDate,
         paymentDestination: form.paymentDestination,
         notes: form.notes,
@@ -113,11 +127,11 @@ export default function InvoicesPage() {
         clientId: '',
         matterId: '',
         currency: 'NGN',
-        lineItems: '',
-        dueDate: '',
+        dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
         paymentDestination: 'OFFICE_ACCOUNT',
-        notes: '',
+        notes: 'Payment due within 14 days',
       });
+      setLineItems([{ description: 'Professional Legal Representation & Advisory', quantity: 1, unitPrice: 250000 }]);
       loadData();
     } catch (err: any) {
       alert(err.response?.data?.error || 'Failed to create invoice');
@@ -269,13 +283,36 @@ export default function InvoicesPage() {
             <h2 style={{ fontFamily: 'Inter,sans-serif', fontSize: '18px', fontWeight: 700, marginBottom: '20px' }}>Create New Bill of Costs / Invoice</h2>
             <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="form-group">
-                <label className="form-label">Client ID *</label>
-                <input className="form-input" required value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} placeholder="UUID of client" />
+                <label className="form-label">Client *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">Select a client…</option>
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} {c.companyName ? `— ${c.companyName}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
-                <label className="form-label">Matter ID</label>
-                <input className="form-input" value={form.matterId} onChange={e => setForm(f => ({ ...f, matterId: e.target.value }))} placeholder="UUID of matter" />
+                <label className="form-label">Linked Matter (Optional)</label>
+                <select
+                  className="form-input"
+                  value={form.matterId}
+                  onChange={e => setForm(f => ({ ...f, matterId: e.target.value }))}
+                >
+                  <option value="">General Retainer / Not linked to specific matter</option>
+                  {matters.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.referenceNumber} — {m.title}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -301,16 +338,74 @@ export default function InvoicesPage() {
                 </select>
               </div>
 
+              {/* Interactive Line Items */}
               <div className="form-group">
-                <label className="form-label">Line Items (JSON Array)</label>
-                <textarea
-                  className="form-input"
-                  rows={3}
-                  value={form.lineItems}
-                  onChange={e => setForm(f => ({ ...f, lineItems: e.target.value }))}
-                  placeholder='[{"description":"Professional Fees for Litigation","quantity":1,"unitPrice":1500000}]'
-                  style={{ resize: 'none', fontFamily: 'monospace', fontSize: '12px' }}
-                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Line Items (Fees & Disbursements)</label>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-secondary"
+                    onClick={() => setLineItems(items => [...items, { description: '', quantity: 1, unitPrice: 50000 }])}
+                  >
+                    <Plus size={13} /> Add Item
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {lineItems.map((item, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '3fr 1fr 1.5fr auto', gap: '8px', alignItems: 'center' }}>
+                      <input
+                        className="form-input"
+                        placeholder="Description of service"
+                        value={item.description}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setLineItems(items => items.map((it, i) => i === idx ? { ...it, description: val } : it));
+                        }}
+                        required
+                      />
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="1"
+                        placeholder="Qty"
+                        value={item.quantity}
+                        onChange={e => {
+                          const val = parseInt(e.target.value) || 1;
+                          setLineItems(items => items.map((it, i) => i === idx ? { ...it, quantity: val } : it));
+                        }}
+                        required
+                      />
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="0"
+                        placeholder={`Rate (${form.currency === 'USD' ? '$' : '₦'})`}
+                        value={item.unitPrice}
+                        onChange={e => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setLineItems(items => items.map((it, i) => i === idx ? { ...it, unitPrice: val } : it));
+                        }}
+                        required
+                      />
+                      {lineItems.length > 1 && (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          style={{ color: '#ef4444', background: 'rgba(239,68,68,0.1)', border: 'none', padding: '6px 10px', cursor: 'pointer' }}
+                          onClick={() => setLineItems(items => items.filter((_, i) => i !== idx))}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop: '8px', textAlign: 'right', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  Invoice Total: <strong style={{ color: 'var(--accent)', fontSize: '15px' }}>
+                    {form.currency === 'USD' ? '$' : '₦'}
+                    {lineItems.reduce((sum, it) => sum + ((Number(it.quantity) || 1) * (Number(it.unitPrice) || 0)), 0).toLocaleString()}
+                  </strong>
+                </div>
               </div>
 
               <div className="form-group">

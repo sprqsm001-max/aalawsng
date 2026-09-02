@@ -10,6 +10,7 @@ export default function DocumentsPage() {
   const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const [docs, setDocs] = useState<any[]>([]);
+  const [matters, setMatters] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -23,9 +24,13 @@ export default function DocumentsPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/documents?limit=30${matterId?`&matterId=${matterId}`:''}`);
-      setDocs(data.documents||[]);
-      setTotal(data.total||0);
+      const [docRes, mRes] = await Promise.all([
+        api.get(`/documents?limit=50${matterId?`&matterId=${matterId}`:''}`),
+        api.get('/matters?limit=100'),
+      ]);
+      setDocs(docRes.data.documents || []);
+      setTotal(docRes.data.total || 0);
+      setMatters(mRes.data.matters || []);
     } catch {}
     setLoading(false);
   };
@@ -33,6 +38,10 @@ export default function DocumentsPage() {
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) return;
+    if (!form.matterId) {
+      alert('Please select a matter for this document');
+      return;
+    }
     setSaving(true);
     try {
       const fd = new FormData();
@@ -71,8 +80,16 @@ export default function DocumentsPage() {
           </div>
         )}
 
-        <div style={{ display:'flex', gap:'12px', marginBottom:'20px' }}>
-          <input className="form-input" placeholder="Filter by Matter ID…" value={matterId} onChange={e=>setMatterId(e.target.value)} style={{ maxWidth:'280px' }}/>
+        <div style={{ display:'flex', gap:'12px', marginBottom:'20px', alignItems:'center' }}>
+          <select className="form-input" value={matterId} onChange={e=>setMatterId(e.target.value)} style={{ maxWidth:'360px' }}>
+            <option value="">All Matters (Filter Documents)</option>
+            {matters.map((m: any) => (
+              <option key={m.id} value={m.id}>
+                {m.referenceNumber} — {m.title}
+              </option>
+            ))}
+          </select>
+          {matterId && <button className="btn btn-sm btn-secondary" onClick={()=>setMatterId('')}>Clear Filter</button>}
         </div>
 
         <div className="table-container">
@@ -111,7 +128,22 @@ export default function DocumentsPage() {
                 <input type="file" className="form-input" required onChange={e=>setFile(e.target.files?.[0]||null)} accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.txt"/>
               </div>
               <div className="form-group"><label className="form-label">Document Name</label><input className="form-input" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Leave blank to use filename"/></div>
-              <div className="form-group"><label className="form-label">Matter ID *</label><input className="form-input" required value={form.matterId} onChange={e=>setForm(f=>({...f,matterId:e.target.value}))} placeholder="UUID"/></div>
+              <div className="form-group">
+                <label className="form-label">Matter *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.matterId}
+                  onChange={e=>setForm(f=>({...f,matterId:e.target.value}))}
+                >
+                  <option value="">Select a matter…</option>
+                  {matters.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.referenceNumber} — {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-group">
                 <label className="form-label">Visibility *</label>
                 <select className="form-input" value={form.visibility} onChange={e=>setForm(f=>({...f,visibility:e.target.value}))}>

@@ -41,22 +41,26 @@ export default function NewMatterPage() {
 
   const loadData = async () => {
     try {
-      const [cRes, sRes] = await Promise.all([
+      const [cRes, sRes, tRes] = await Promise.all([
         api.get('/clients?limit=100'),
         api.get('/staff?limit=100'),
+        api.get('/matters/types').catch(() => ({ data: [] })),
       ]);
       setClients(cRes.data.clients || []);
       setStaffList(sRes.data.staff || []);
 
-      // Default matter types fallback if not separate endpoint
-      setMatterTypes([
-        { id: 'litigation', name: 'Litigation' },
-        { id: 'property', name: 'Property Transaction' },
-        { id: 'family', name: 'Family Law' },
-        { id: 'corporate', name: 'Corporate & Commercial' },
-        { id: 'estate', name: 'Estate & Probate' },
-        { id: 'employment', name: 'Employment' },
-      ]);
+      const realTypes = Array.isArray(tRes.data) ? tRes.data : [];
+      if (realTypes.length > 0) {
+        setMatterTypes(realTypes);
+        setForm(f => ({ ...f, matterTypeId: f.matterTypeId || realTypes[0].id }));
+      } else {
+        setMatterTypes([
+          { id: '', name: 'General Practice / Litigation' },
+          { id: 'property', name: 'Property Transaction' },
+          { id: 'corporate', name: 'Corporate & Commercial' },
+          { id: 'ip', name: 'Intellectual Property & Trademarks' },
+        ]);
+      }
     } catch (err: any) {
       console.error(err);
     } finally {

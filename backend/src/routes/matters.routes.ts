@@ -12,8 +12,15 @@ const MatterSchema = z.object({
   title: z.string().min(1),
   description: z.string().optional(),
   clientId: z.string().uuid(),
-  matterTypeId: z.string().uuid(),
+  matterTypeId: z.string().optional(),
   status: z.enum(['INTAKE', 'OPEN', 'IN_PROGRESS', 'PENDING', 'CLOSED', 'ARCHIVED']).optional(),
+  courtJurisdiction: z.string().optional(),
+  courtCaseNumber: z.string().optional(),
+  opposingPartyName: z.string().optional(),
+  opposingCounselName: z.string().optional(),
+  budgetAmount: z.number().optional(),
+  estimatedHours: z.number().optional(),
+  leadAttorneyId: z.string().uuid().optional(),
 });
 
 function generateRefNumber(): string {
@@ -22,11 +29,31 @@ function generateRefNumber(): string {
   return `AAL-${year}-${rand}`;
 }
 
+// GET /api/v1/matters/types and /types/all — MUST BE BEFORE /:id
+router.get(['/types', '/types/all'], requireStaffOrAdmin, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const types = await prisma.matterType.findMany({ orderBy: { name: 'asc' } });
+    res.json(types);
+  } catch {
+    res.status(500).json({ error: 'Failed to fetch matter types' });
+  }
+});
+
+// POST /api/v1/matters/types
+router.post('/types', requireStaffOrAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const type = await prisma.matterType.create({ data: req.body });
+    res.status(201).json(type);
+  } catch {
+    res.status(500).json({ error: 'Failed to create matter type' });
+  }
+});
+
 // GET /api/v1/matters — paginated
 router.get('/', enforceClientScope, async (req: Request, res: Response): Promise<void> => {
   try {
     const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const limit = parseInt(req.query.limit as string) || 50;
     const skip = (page - 1) * limit;
     const status = req.query.status as string;
     const search = req.query.search as string;
@@ -101,11 +128,38 @@ router.get('/:id', enforceClientScope, matterScopeGuard, async (req: Request, re
 router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const data = MatterSchema.parse(req.body);
+
+    // Validate client exists
+    const client = await prisma.clientRecord.findUnique({ where: { id: data.clientId } });
+    if (!client) {
+      res.status(400).json({ error: 'Selected client does not exist' });
+      return;
+    }
+
+    // Resolve matterTypeId (fallback to first available if not a valid UUID or not found)
+    let matterTypeId = data.matterTypeId;
+    const isUuid = matterTypeId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(matterTypeId);
+    if (!isUuid) {
+      const firstType = await prisma.matterType.findFirst();
+      if (!firstType) {
+        res.status(400).json({ error: 'No matter types available in database' });
+        return;
+      }
+      matterTypeId = firstType.id;
+    } else {
+      const typeExists = await prisma.matterType.findUnique({ where: { id: matterTypeId } });
+      if (!typeExists) {
+        const firstType = await prisma.matterType.findFirst();
+        matterTypeId = firstType?.id || matterTypeId;
+      }
+    }
+
     const refNumber = generateRefNumber();
 
     const matter = await prisma.matter.create({
       data: {
         ...data,
+        matterTypeId: matterTypeId!,
         referenceNumber: refNumber,
         assignedStaff: req.body.staffIds ? {
           create: (req.body.staffIds as string[]).map((sid: string) => ({
@@ -124,7 +178,7 @@ router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promi
     res.status(201).json(matter);
   } catch (err: any) {
     if (err.name === 'ZodError') { res.status(400).json({ error: 'Validation error', details: err.errors }); return; }
-    res.status(500).json({ error: 'Failed to create matter' });
+    res.status(500).json({ error: err.message || 'Failed to create matter' });
   }
 });
 
@@ -147,26 +201,6 @@ router.patch('/:id', requireStaffOrAdmin, async (req: Request, res: Response): P
     res.json(updated);
   } catch {
     res.status(500).json({ error: 'Failed to update matter' });
-  }
-});
-
-// GET /api/v1/matters/types/all
-router.get('/types/all', requireStaffOrAdmin, async (_req: Request, res: Response): Promise<void> => {
-  try {
-    const types = await prisma.matterType.findMany({ orderBy: { name: 'asc' } });
-    res.json(types);
-  } catch {
-    res.status(500).json({ error: 'Failed to fetch matter types' });
-  }
-});
-
-// POST /api/v1/matters/types
-router.post('/types', requireStaffOrAdmin, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const type = await prisma.matterType.create({ data: req.body });
-    res.status(201).json(type);
-  } catch {
-    res.status(500).json({ error: 'Failed to create matter type' });
   }
 });
 

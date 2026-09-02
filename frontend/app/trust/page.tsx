@@ -34,6 +34,8 @@ export default function TrustAccountingPage() {
   const [bankBalance, setBankBalance] = useState('');
   const [reconCurrency, setReconCurrency] = useState('NGN');
   const [saving, setSaving] = useState(false);
+  const [clients, setClients] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<any[]>([]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -50,12 +52,16 @@ export default function TrustAccountingPage() {
       const catParam = categoryFilter !== 'ALL' ? `category=${categoryFilter}` : '';
       const query = [curParam, catParam].filter(Boolean).join('&');
 
-      const [ledgersRes, reconRes] = await Promise.all([
+      const [ledgersRes, reconRes, cRes, invRes] = await Promise.all([
         api.get(`/trust/ledgers${query ? `?${query}` : ''}`),
         api.get('/trust/reconciliations'),
+        api.get('/clients?limit=100'),
+        api.get('/invoices?limit=100'),
       ]);
       setLedgers(ledgersRes.data || []);
       setReconciliations(reconRes.data || []);
+      setClients(cRes.data.clients || []);
+      setInvoices(invRes.data.invoices || []);
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -421,8 +427,20 @@ export default function TrustAccountingPage() {
             </p>
             <form onSubmit={handleDeposit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="form-group">
-                <label className="form-label">Client ID *</label>
-                <input className="form-input" required value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} placeholder="UUID of client" />
+                <label className="form-label">Client *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">Select a client…</option>
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} {c.companyName ? `— ${c.companyName}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
@@ -477,13 +495,37 @@ export default function TrustAccountingPage() {
             </p>
             <form onSubmit={handleTransfer} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div className="form-group">
-                <label className="form-label">Client ID *</label>
-                <input className="form-input" required value={form.clientId} onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))} />
+                <label className="form-label">Client *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">Select a client…</option>
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} {c.companyName ? `— ${c.companyName}` : ''}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div className="form-group">
-                <label className="form-label">Invoice ID *</label>
-                <input className="form-input" required value={form.invoiceId} onChange={e => setForm(f => ({ ...f, invoiceId: e.target.value }))} placeholder="UUID of issued invoice" />
+                <label className="form-label">Issued Bill of Costs / Invoice *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.invoiceId}
+                  onChange={e => setForm(f => ({ ...f, invoiceId: e.target.value }))}
+                >
+                  <option value="">Select an invoice…</option>
+                  {invoices.map((inv: any) => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.invoiceNumber} — {inv.currency} {Number(inv.totalAmount).toLocaleString()} ({inv.client?.firstName} {inv.client?.lastName})
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>

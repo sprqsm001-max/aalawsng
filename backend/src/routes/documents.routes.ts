@@ -133,9 +133,30 @@ router.post('/', requireStaffOrAdmin, upload.single('file'), async (req: Request
       return;
     }
 
+    if (!req.body.matterId || req.body.matterId.trim() === '') {
+      res.status(400).json({ error: 'A matter must be selected for this document. Please select a matter.' });
+      return;
+    }
+
+    // Look up matter by ID, referenceNumber, or title
+    let matter = await prisma.matter.findFirst({
+      where: {
+        OR: [
+          { id: req.body.matterId },
+          { referenceNumber: req.body.matterId },
+          { title: { contains: req.body.matterId } },
+        ],
+      },
+    });
+
+    if (!matter) {
+      res.status(400).json({ error: 'Selected matter not found. Please choose an existing matter from the list.' });
+      return;
+    }
+
     const doc = await prisma.document.create({
       data: {
-        matterId: req.body.matterId,
+        matterId: matter.id,
         title: req.body.title || req.body.name || req.file.originalname,
         fileName: req.file.originalname,
         description: req.body.description,

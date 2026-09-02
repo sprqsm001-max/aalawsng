@@ -48,21 +48,57 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // POST /api/v1/time — Log time entry
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const hours = parseFloat(req.body.hours) || 1.0;
+    const hours = parseFloat(req.body.hours) || (req.body.minutes ? parseFloat(req.body.minutes) / 60 : 1.0);
     const hourlyRate = parseFloat(req.body.hourlyRate) || 50000.0;
     const totalAmount = hours * hourlyRate;
 
+    // Resolve staffId
+    let staffId = req.user?.staffId || req.body.staffId;
+    if (!staffId && req.user?.userId) {
+      const staff = await prisma.staffProfile.findFirst({ where: { userId: req.user.userId } });
+      staffId = staff?.id;
+    }
+    if (!staffId) {
+      const firstStaff = await prisma.staffProfile.findFirst();
+      staffId = firstStaff?.id;
+    }
+    if (!staffId) {
+      res.status(400).json({ error: 'No active staff profile found to record time' });
+      return;
+    }
+
+    if (!req.body.matterId || String(req.body.matterId).trim() === '') {
+      res.status(400).json({ error: 'A matter must be selected to log time. Please select a matter.' });
+      return;
+    }
+
+    // Resolve matter
+    let matter = await prisma.matter.findFirst({
+      where: {
+        OR: [
+          { id: req.body.matterId },
+          { referenceNumber: req.body.matterId },
+          { title: { contains: req.body.matterId } },
+        ],
+      },
+    });
+
+    if (!matter) {
+      res.status(400).json({ error: 'Selected matter not found. Please select an existing matter from the dropdown.' });
+      return;
+    }
+
     const entry = await prisma.timeEntry.create({
       data: {
-        matterId: req.body.matterId,
-        staffId: req.user!.staffId || req.body.staffId,
+        matterId: matter.id,
+        staffId,
         description: req.body.description || 'Legal services rendered',
         hours,
         hourlyRate,
         totalAmount,
         currency: req.body.currency || 'NGN',
         isBillable: req.body.isBillable ?? true,
-        dateWorked: req.body.dateWorked ? new Date(req.body.dateWorked) : new Date(),
+        dateWorked: req.body.dateWorked || req.body.date ? new Date(req.body.dateWorked || req.body.date) : new Date(),
       },
     });
     res.status(201).json(entry);

@@ -10,6 +10,8 @@ export default function ClientMessagingPage() {
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [matters, setMatters] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -21,20 +23,32 @@ export default function ClientMessagingPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get('/client-messages?limit=30');
-      setMessages(data.messages||[]); setTotal(data.total||0);
+      const [msgRes, cRes, mRes] = await Promise.all([
+        api.get('/client-messages?limit=30'),
+        api.get('/clients?limit=100'),
+        api.get('/matters?limit=100'),
+      ]);
+      setMessages(msgRes.data.messages || []);
+      setTotal(msgRes.data.total || 0);
+      setClients(cRes.data.clients || []);
+      setMatters(mRes.data.matters || []);
     } catch {}
     setLoading(false);
   };
 
   const handleSend = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!form.clientId || !form.matterId) {
+      alert('Please select both a client and a matter');
+      return;
+    }
+    setSaving(true);
     try {
       await api.post('/client-messages', form);
       setShowModal(false);
       setForm({ clientId:'', matterId:'', subject:'', body:'' });
       load();
-    } catch (err:any) { alert(err.response?.data?.error||'Failed'); }
+    } catch (err:any) { alert(err.response?.data?.error || 'Failed to send message'); }
     setSaving(false);
   };
 
@@ -89,8 +103,39 @@ export default function ClientMessagingPage() {
           <div className="modal" onClick={e=>e.stopPropagation()}>
             <h2 style={{fontFamily:'Inter,sans-serif',fontSize:'18px',fontWeight:700,marginBottom:'20px'}}>Message a Client</h2>
             <form onSubmit={handleSend} style={{display:'flex',flexDirection:'column',gap:'14px'}}>
-              <div className="form-group"><label className="form-label">Client ID *</label><input className="form-input" required value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} placeholder="UUID"/></div>
-              <div className="form-group"><label className="form-label">Matter ID *</label><input className="form-input" required value={form.matterId} onChange={e=>setForm(f=>({...f,matterId:e.target.value}))} placeholder="UUID"/></div>
+              <div className="form-group">
+                <label className="form-label">Client *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">Select a client…</option>
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} {c.companyName ? `— ${c.companyName}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Matter *</label>
+                <select
+                  className="form-input"
+                  required
+                  value={form.matterId}
+                  onChange={e => setForm(f => ({ ...f, matterId: e.target.value }))}
+                >
+                  <option value="">Select a matter…</option>
+                  {matters.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.referenceNumber} — {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-group"><label className="form-label">Subject *</label><input className="form-input" required value={form.subject} onChange={e=>setForm(f=>({...f,subject:e.target.value}))}/></div>
               <div className="form-group"><label className="form-label">Message *</label><textarea className="form-input" required rows={4} value={form.body} onChange={e=>setForm(f=>({...f,body:e.target.value}))} style={{resize:'none'}}/></div>
               <div style={{display:'flex',gap:'10px',justifyContent:'flex-end'}}>

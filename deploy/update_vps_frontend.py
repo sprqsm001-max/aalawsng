@@ -6,7 +6,7 @@ import time
 
 VPS_IP = "145.239.78.148"
 VPS_USER = "ubuntu"
-VPS_PASS = "os.getenv("VPS_PASS", "")"
+VPS_PASS = os.getenv("VPS_PASS", "VrrGnSSqskNyp")
 
 print("Creating tar archive of frontend source code...")
 temp_tar = tempfile.mktemp(suffix="_frontend.tar.gz")

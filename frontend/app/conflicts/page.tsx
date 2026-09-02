@@ -10,6 +10,8 @@ export default function ConflictsPage() {
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
   const [checks, setChecks] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [matters, setMatters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ clientId:'', matterId:'', searchTerms:'' });
@@ -20,7 +22,16 @@ export default function ConflictsPage() {
 
   const load = async () => {
     setLoading(true);
-    try { const { data } = await api.get('/conflicts'); setChecks(data||[]); } catch {}
+    try {
+      const [cRes, clRes, mRes] = await Promise.all([
+        api.get('/conflicts'),
+        api.get('/clients?limit=100'),
+        api.get('/matters?limit=100'),
+      ]);
+      setChecks(cRes.data || []);
+      setClients(clRes.data.clients || []);
+      setMatters(mRes.data.matters || []);
+    } catch {}
     setLoading(false);
   };
 
@@ -80,8 +91,36 @@ export default function ConflictsPage() {
             <h2 style={{fontFamily:'Inter,sans-serif',fontSize:'18px',fontWeight:700,marginBottom:'8px'}}>Run Conflict of Interest Check</h2>
             <p style={{fontSize:'12.5px',color:'var(--text-muted)',marginBottom:'20px'}}>Enter names, companies, and related party names to search across all existing clients and matters.</p>
             <form onSubmit={runCheck} style={{display:'flex',flexDirection:'column',gap:'14px'}}>
-              <div className="form-group"><label className="form-label">Client ID (optional)</label><input className="form-input" value={form.clientId} onChange={e=>setForm(f=>({...f,clientId:e.target.value}))} placeholder="UUID of new client being checked"/></div>
-              <div className="form-group"><label className="form-label">Matter ID (optional)</label><input className="form-input" value={form.matterId} onChange={e=>setForm(f=>({...f,matterId:e.target.value}))} placeholder="UUID"/></div>
+              <div className="form-group">
+                <label className="form-label">Client (optional)</label>
+                <select
+                  className="form-input"
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">None / Prospective Client</option>
+                  {clients.map((c: any) => (
+                    <option key={c.id} value={c.id}>
+                      {c.firstName} {c.lastName} {c.companyName ? `— ${c.companyName}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Matter (optional)</label>
+                <select
+                  className="form-input"
+                  value={form.matterId}
+                  onChange={e => setForm(f => ({ ...f, matterId: e.target.value }))}
+                >
+                  <option value="">None / Prospective Matter</option>
+                  {matters.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.referenceNumber} — {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-group">
                 <label className="form-label">Search Terms * (comma-separated)</label>
                 <input className="form-input" required value={form.searchTerms} onChange={e=>setForm(f=>({...f,searchTerms:e.target.value}))} placeholder="Adeyemi, Chukwuemeka, ABC Limited, opposing counsel name"/>

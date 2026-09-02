@@ -17,6 +17,7 @@ export default function CalendarPage() {
   const router = useRouter();
   const [events, setEvents] = useState<any[]>([]);
   const [deadlines, setDeadlines] = useState<any[]>([]);
+  const [matters, setMatters] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title:'', type:'COURT_DATE', eventDate:'', matterId:'', isHardDeadline: false, description:'' });
@@ -30,24 +31,34 @@ export default function CalendarPage() {
       const now = new Date();
       const from = now.toISOString().split('T')[0];
       const to = new Date(now.setMonth(now.getMonth()+3)).toISOString().split('T')[0];
-      const [evRes, dlRes] = await Promise.all([
+      const [evRes, dlRes, mRes] = await Promise.all([
         api.get(`/calendar?from=${from}&to=${to}`),
         api.get('/calendar/upcoming-deadlines?days=30'),
+        api.get('/matters?limit=100'),
       ]);
       setEvents(evRes.data || []);
       setDeadlines(dlRes.data || []);
+      setMatters(mRes.data.matters || []);
     } catch {}
     setLoading(false);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault(); setSaving(true);
+    e.preventDefault();
+    if (!form.title.trim()) {
+      alert('Event title is required');
+      return;
+    }
+    setSaving(true);
     try {
-      await api.post('/calendar', form);
+      await api.post('/calendar', {
+        ...form,
+        matterId: form.matterId || undefined,
+      });
       setShowModal(false);
       setForm({ title:'', type:'COURT_DATE', eventDate:'', matterId:'', isHardDeadline: false, description:'' });
       load();
-    } catch (err: any) { alert(err.response?.data?.error || 'Failed'); }
+    } catch (err: any) { alert(err.response?.data?.error || 'Failed to create event'); }
     setSaving(false);
   };
 
@@ -118,7 +129,17 @@ export default function CalendarPage() {
                 </select>
               </div>
               <div className="form-group"><label className="form-label">Date & Time *</label><input className="form-input" type="datetime-local" required value={form.eventDate} onChange={e=>setForm(f=>({...f,eventDate:e.target.value}))}/></div>
-              <div className="form-group"><label className="form-label">Matter ID (optional)</label><input className="form-input" value={form.matterId} onChange={e=>setForm(f=>({...f,matterId:e.target.value}))} placeholder="UUID"/></div>
+              <div className="form-group">
+                <label className="form-label">Matter (Optional)</label>
+                <select className="form-input" value={form.matterId} onChange={e=>setForm(f=>({...f,matterId:e.target.value}))}>
+                  <option value="">General Event / Firm Deadline (No linked matter)</option>
+                  {matters.map((m: any) => (
+                    <option key={m.id} value={m.id}>
+                      {m.referenceNumber} — {m.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="form-group"><label className="form-label">Description</label><input className="form-input" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></div>
               <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'13px',color:'var(--text-secondary)'}}>
                 <input type="checkbox" checked={form.isHardDeadline} onChange={e=>setForm(f=>({...f,isHardDeadline:e.target.checked}))}/>

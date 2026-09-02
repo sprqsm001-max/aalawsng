@@ -8,10 +8,10 @@ const router = Router();
 router.use(authenticate);
 
 const EventSchema = z.object({
-  matterId: z.string().uuid().optional(),
+  matterId: z.string().optional(),
   title: z.string().min(1),
   description: z.string().optional(),
-  type: z.enum(['COURT_DATE','STATUTE_DEADLINE','TASK_DUE','MEETING','FILING_DEADLINE','HEARING','DEPOSITION','OTHER']),
+  type: z.enum(['COURT_DATE','STATUTE_DEADLINE','TASK_DUE','MEETING','FILING_DEADLINE','HEARING','DEPOSITION','OTHER']).optional(),
   eventDate: z.string(),
   endDate: z.string().optional(),
   isHardDeadline: z.boolean().optional(),
@@ -63,7 +63,7 @@ router.get('/upcoming-deadlines', requireStaffOrAdmin, async (req: Request, res:
       },
       orderBy: { eventDate: 'asc' },
       include: {
-        matter: { select: { id: true, referenceNumber: true, title: true, client: { select: { firstName: true, lastName: true } } } },
+        matter: { select: { referenceNumber: true, title: true } },
       },
     });
     res.json(deadlines);
@@ -82,11 +82,31 @@ router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promi
       return;
     }
 
+    const rawMatterId = (data.matterId || '').trim();
+    let resolvedMatterId: string | undefined = undefined;
+    if (rawMatterId) {
+      const matter = await prisma.matter.findFirst({
+        where: {
+          OR: [
+            { id: rawMatterId },
+            { referenceNumber: rawMatterId },
+            { title: { contains: rawMatterId } },
+          ],
+        },
+      });
+      if (matter) resolvedMatterId = matter.id;
+    }
+
     const event = await prisma.calendarEvent.create({
       data: {
-        ...data,
+        title: data.title,
+        description: data.description,
+        eventType: data.type || 'OTHER',
         eventDate: new Date(data.eventDate),
         endDate: data.endDate ? new Date(data.endDate) : undefined,
+        isHardDeadline: data.isHardDeadline ?? false,
+        location: data.location,
+        matterId: resolvedMatterId,
         organizerId: staff.id,
       },
     });
@@ -97,7 +117,7 @@ router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promi
     res.status(201).json(event);
   } catch (err: any) {
     if (err.name === 'ZodError') { res.status(400).json({ error: 'Validation error', details: err.errors }); return; }
-    res.status(500).json({ error: 'Failed to create event' });
+    res.status(500).json({ error: err.message || 'Failed to create event' });
   }
 });
 

@@ -52,29 +52,83 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 // POST /api/v1/tasks
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const data = TaskSchema.parse(req.body);
+    const rawMatterId = (req.body.matterId || '').trim();
+    const rawAssigneeId = (req.body.assigneeId || req.body.assignedToId || '').trim();
+    let priority = (req.body.priority || 'MEDIUM').toUpperCase();
+    if (priority === 'CRITICAL') priority = 'URGENT';
+    if (!['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(priority)) priority = 'MEDIUM';
+
+    if (!req.body.title || req.body.title.trim() === '') {
+      res.status(400).json({ error: 'Task title is required' });
+      return;
+    }
+
     const staff = await prisma.staffProfile.findFirst({ where: { userId: req.user!.userId } });
     if (!staff) {
       res.status(400).json({ error: 'Only staff can create tasks' });
       return;
     }
 
+    // Resolve matterId if provided
+    let resolvedMatterId: string | undefined = undefined;
+    if (rawMatterId) {
+      const matter = await prisma.matter.findFirst({
+        where: {
+          OR: [
+            { id: rawMatterId },
+            { referenceNumber: rawMatterId },
+            { title: { contains: rawMatterId } },
+          ],
+        },
+      });
+      if (matter) resolvedMatterId = matter.id;
+    }
+
+    // Resolve assigneeId if provided
+    let resolvedAssigneeId: string | undefined = undefined;
+    if (rawAssigneeId) {
+      const assignee = await prisma.staffProfile.findFirst({
+        where: {
+          OR: [
+            { id: rawAssigneeId },
+            { firstName: { contains: rawAssigneeId } },
+            { lastName: { contains: rawAssigneeId } },
+          ],
+        },
+      });
+      if (assignee) resolvedAssigneeId = assignee.id;
+    }
+
+    let dueDate: Date | undefined = undefined;
+    if (req.body.dueDate && req.body.dueDate.trim() !== '') {
+      const d = new Date(req.body.dueDate);
+      if (!isNaN(d.getTime())) dueDate = d;
+    }
+
     const task = await prisma.task.create({
       data: {
-        ...data,
-        dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+        title: req.body.title.trim(),
+        description: req.body.description || undefined,
+        matterId: resolvedMatterId,
+        assigneeId: resolvedAssigneeId,
+        priority,
+        dueDate,
         createdById: staff.id,
       },
-      include: { assignee: { select: { firstName: true, lastName: true } } },
+      include: {
+        assignee: { select: { firstName: true, lastName: true, role: true } },
+        matter: { select: { referenceNumber: true, title: true } },
+      },
     });
+
     await createAuditLog({
       userId: req.user!.userId, action: 'CREATE', entityType: 'Task',
       entityId: task.id, module: 'M05', newValue: { title: task.title }, ipAddress: req.ip,
     });
+
     res.status(201).json(task);
   } catch (err: any) {
-    if (err.name === 'ZodError') { res.status(400).json({ error: 'Validation error', details: err.errors }); return; }
-    res.status(500).json({ error: 'Failed to create task' });
+    res.status(500).json({ error: err.message || 'Failed to create task' });
   }
 });
 

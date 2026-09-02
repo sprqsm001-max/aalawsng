@@ -121,6 +121,28 @@ router.post('/deposit', requireStaffOrAdmin, async (req: Request, res: Response)
       supportingDocUrl,
     } = req.body;
 
+    const rawClientId = (clientId || '').trim();
+    if (!rawClientId) {
+      res.status(400).json({ error: 'Please select a client for this receipt' });
+      return;
+    }
+
+    const client = await prisma.clientRecord.findFirst({
+      where: {
+        OR: [
+          { id: rawClientId },
+          { firstName: { contains: rawClientId } },
+          { lastName: { contains: rawClientId } },
+          { companyName: { contains: rawClientId } },
+        ],
+      },
+    });
+
+    if (!client) {
+      res.status(400).json({ error: 'Selected client not found. Please choose an existing client from the dropdown.' });
+      return;
+    }
+
     const numAmount = Number(amount);
     if (!numAmount || numAmount <= 0) {
       res.status(400).json({ error: 'Receipt amount must be positive' });
@@ -135,12 +157,12 @@ router.post('/deposit', requireStaffOrAdmin, async (req: Request, res: Response)
     const result = await prisma.$transaction(async (tx) => {
       // Find or create ledger for this client & currency
       let ledger = await tx.trustLedgerAccount.findFirst({
-        where: { clientId, currency, accountCategory },
+        where: { clientId: client.id, currency, accountCategory },
       });
 
       if (!ledger) {
         ledger = await tx.trustLedgerAccount.create({
-          data: { clientId, currency, accountCategory, balance: 0 },
+          data: { clientId: client.id, currency, accountCategory, balance: 0 },
         });
       }
 
@@ -222,16 +244,54 @@ router.post('/transfer', requireStaffOrAdmin, async (req: Request, res: Response
       return;
     }
 
-    if (!invoiceId) {
+    const rawClientId = (clientId || '').trim();
+    const rawInvoiceId = (invoiceId || '').trim();
+
+    if (!rawClientId) {
+      res.status(400).json({ error: 'Please select a client for this transfer' });
+      return;
+    }
+
+    const client = await prisma.clientRecord.findFirst({
+      where: {
+        OR: [
+          { id: rawClientId },
+          { firstName: { contains: rawClientId } },
+          { lastName: { contains: rawClientId } },
+          { companyName: { contains: rawClientId } },
+        ],
+      },
+    });
+
+    if (!client) {
+      res.status(400).json({ error: 'Selected client not found. Please choose an existing client from the dropdown.' });
+      return;
+    }
+
+    if (!rawInvoiceId) {
       res.status(400).json({
         error: "Legal Practitioners' Accounts Rules 1964 requirement: Transfer to office account requires an issued invoice/bill of costs reference.",
       });
       return;
     }
 
+    const invoice = await prisma.invoice.findFirst({
+      where: {
+        OR: [
+          { id: rawInvoiceId },
+          { invoiceNumber: rawInvoiceId },
+        ],
+      },
+    });
+
+    if (!invoice) {
+      res.status(400).json({ error: 'Referenced invoice not found in system.' });
+      return;
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const ledger = await tx.trustLedgerAccount.findFirst({
-        where: { clientId, currency, accountCategory: 'CLIENT_FUNDS' },
+        where: { clientId: client.id, currency, accountCategory: 'CLIENT_FUNDS' },
       });
 
       if (!ledger) {
