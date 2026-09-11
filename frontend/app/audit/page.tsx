@@ -4,9 +4,10 @@ import api from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import { useAuthStore } from '@/lib/store';
 import { useRouter } from 'next/navigation';
+import { Shield } from 'lucide-react';
 
 export default function AuditPage() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const [logs, setLogs] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -14,6 +15,7 @@ export default function AuditPage() {
   const [page, setPage] = useState(1);
   const [module, setModule] = useState('');
   const [action, setAction] = useState('');
+  const [isForbidden, setIsForbidden] = useState(false);
 
   useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, [page, module, action]);
 
@@ -22,7 +24,11 @@ export default function AuditPage() {
     try {
       const { data } = await api.get(`/audit?page=${page}&limit=50${module?`&module=${module}`:''}${action?`&action=${action}`:''}`);
       setLogs(data.logs||[]); setTotal(data.total||0);
-    } catch {}
+    } catch (err: any) {
+      if (err.response?.status === 403 || user?.tier !== 'ADMIN') {
+        setIsForbidden(true);
+      }
+    }
     setLoading(false);
   };
 
@@ -43,9 +49,19 @@ export default function AuditPage() {
           <div><h1 className="page-title">Audit Trail</h1><p className="page-subtitle">{total} immutable log entries — read-only, append-only</p></div>
         </div>
 
-        <div style={{background:'rgba(96,165,250,0.08)',border:'1px solid rgba(96,165,250,0.2)',borderRadius:'8px',padding:'12px 16px',marginBottom:'20px',fontSize:'12.5px',color:'var(--text-secondary)'}}>
-          All records in this log are immutable. No entry can be modified or deleted. Trust accounting entries are flagged in gold.
-        </div>
+        {isForbidden ? (
+          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '10px', padding: '28px', textAlign: 'center', margin: '30px auto', maxWidth: '640px' }}>
+            <Shield size={44} style={{ color: '#ef4444', margin: '0 auto 14px' }} />
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#f87171', marginBottom: '8px' }}>Administrative Privileges Required</h3>
+            <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+              The Statutory Audit Trail is reserved for Managing Partners and Firm Compliance Officers. You are signed in as a Staff member (<strong>{user?.name || user?.email}</strong>). To inspect compliance logs, please sign in with an Admin account (<code>admin@aalawsng.com</code>).
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={{background:'rgba(96,165,250,0.08)',border:'1px solid rgba(96,165,250,0.2)',borderRadius:'8px',padding:'12px 16px',marginBottom:'20px',fontSize:'12.5px',color:'var(--text-secondary)'}}>
+              All records in this log are immutable. No entry can be modified or deleted. Trust accounting entries are flagged in gold.
+            </div>
 
         <div style={{display:'flex',gap:'12px',marginBottom:'20px'}}>
           <select className="form-input" style={{maxWidth:'180px'}} value={module} onChange={e=>{setModule(e.target.value);setPage(1)}}>
@@ -75,13 +91,15 @@ export default function AuditPage() {
           </table>
         </div>
 
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'16px'}}>
-          <span style={{color:'var(--text-muted)',fontSize:'13px'}}>Showing {logs.length} of {total}</span>
-          <div style={{display:'flex',gap:'8px'}}>
-            <button className="btn btn-secondary btn-sm" disabled={page===1} onClick={()=>setPage(p=>p-1)}>Previous</button>
-            <button className="btn btn-secondary btn-sm" disabled={logs.length<50} onClick={()=>setPage(p=>p+1)}>Next</button>
-          </div>
-        </div>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:'16px'}}>
+              <span style={{color:'var(--text-muted)',fontSize:'13px'}}>Showing {logs.length} of {total}</span>
+              <div style={{display:'flex',gap:'8px'}}>
+                <button className="btn btn-secondary btn-sm" disabled={page===1} onClick={()=>setPage(p=>p-1)}>Previous</button>
+                <button className="btn btn-secondary btn-sm" disabled={logs.length<50} onClick={()=>setPage(p=>p+1)}>Next</button>
+              </div>
+            </div>
+          </>
+        )}
       </main>
     </div>
   );

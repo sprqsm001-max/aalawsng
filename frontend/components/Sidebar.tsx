@@ -20,6 +20,7 @@ interface NavLinkItem {
   label: string;
   icon: any;
   critical?: boolean;
+  adminOnly?: boolean;
 }
 
 type NavItem = NavSection | NavLinkItem;
@@ -45,9 +46,9 @@ const STAFF_NAV: NavItem[] = [
   { href: '/hr', label: 'HR & Leaves', icon: Users },
   { section: 'Compliance & Admin' },
   { href: '/conflicts', label: 'Conflict Checks', icon: Scale },
-  { href: '/audit', label: 'Audit Ledger', icon: Activity },
+  { href: '/audit', label: 'Audit Ledger', icon: Activity, adminOnly: true },
   { href: '/analytics', label: 'Analytics', icon: BarChart2 },
-  { href: '/rbac', label: 'Permissions', icon: Settings },
+  { href: '/rbac', label: 'Permissions', icon: Settings, adminOnly: true },
 ];
 
 const CLIENT_NAV: NavItem[] = [
@@ -69,7 +70,9 @@ export default function Sidebar() {
     setMobileOpen(false);
   }, [pathname]);
 
-  const navItems = user?.tier === 'CLIENT' ? CLIENT_NAV : STAFF_NAV;
+  const navItems = (user?.tier === 'CLIENT' ? CLIENT_NAV : STAFF_NAV).filter(
+    (item) => !('adminOnly' in item && item.adminOnly && user?.tier !== 'ADMIN')
+  );
 
   const handleLogout = async () => {
     try {

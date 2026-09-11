@@ -16,17 +16,25 @@ const MODULE_LABELS: Record<string,string> = {
 const ROLES = ['ADMIN','ATTORNEY','PARALEGAL','BILLING_STAFF','ADMIN_STAFF','ASSOCIATE'];
 
 export default function RBACPage() {
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, user } = useAuthStore();
   const router = useRouter();
   const [matrix, setMatrix] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isForbidden, setIsForbidden] = useState(false);
 
   useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, []);
 
   const load = async () => {
     setLoading(true);
-    try { const { data } = await api.get('/rbac/matrix'); setMatrix(data.matrix||{}); } catch {}
+    try {
+      const { data } = await api.get('/rbac/matrix');
+      setMatrix(data.matrix || {});
+    } catch (err: any) {
+      if (err.response?.status === 403 || user?.tier !== 'ADMIN') {
+        setIsForbidden(true);
+      }
+    }
     setLoading(false);
   };
 
@@ -56,9 +64,19 @@ export default function RBACPage() {
           {saving&&<span className="badge badge-blue">Saving…</span>}
         </div>
 
-        <div style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:'8px',padding:'12px 16px',marginBottom:'20px',fontSize:'12.5px',color:'#f87171'}}>
-          <strong>⚠️ Caution:</strong> Changes take effect immediately. Role changes for active users apply on their next API request. Trust module (M08) should always require elevated approval.
-        </div>
+        {isForbidden ? (
+          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: '10px', padding: '28px', textAlign: 'center', margin: '30px auto', maxWidth: '640px' }}>
+            <Shield size={44} style={{ color: '#ef4444', margin: '0 auto 14px' }} />
+            <h3 style={{ fontSize: '18px', fontWeight: 600, color: '#f87171', marginBottom: '8px' }}>Administrative Privileges Required</h3>
+            <p style={{ fontSize: '13.5px', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>
+              The Role &amp; Permission Matrix is reserved for Managing Partners and Firm Administrators. You are signed in as a Staff member (<strong>{user?.name || user?.email}</strong>). To configure role policies, please sign in with an Admin account (<code>admin@aalawsng.com</code>).
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.25)',borderRadius:'8px',padding:'12px 16px',marginBottom:'20px',fontSize:'12.5px',color:'#f87171'}}>
+              <strong>⚠️ Caution:</strong> Changes take effect immediately. Role changes for active users apply on their next API request. Trust module (M08) should always require elevated approval.
+            </div>
 
         <div style={{overflowX:'auto',borderRadius:'12px',border:'1px solid var(--border)'}}>
           <table style={{minWidth:'900px'}}>
@@ -111,6 +129,8 @@ export default function RBACPage() {
           </table>
         </div>
         <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'12px'}}>R = Read &nbsp; W = Write &nbsp; A = Admin. ADMIN role permissions cannot be changed from this interface.</p>
+      </>
+    )}
       </main>
     </div>
   );
