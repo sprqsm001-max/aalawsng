@@ -82,6 +82,8 @@ export default function ClientsPage() {
       const serverMsg = err.response?.data?.error || err.message;
       if (err.response?.status === 401) {
         setFormError('Authentication session was interrupted. Please check your credentials or log in again.');
+      } else if (err.response?.status === 403) {
+        setFormError('Insufficient permissions: Client intake requires an Administrator or Attorney account (e.g. admin@aalawsng.com).');
       } else {
         setFormError(serverMsg || 'Failed to create client. Please verify all details.');
       }
