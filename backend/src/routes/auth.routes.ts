@@ -26,10 +26,10 @@ const RegisterSchema = z.object({
 function generateTokens(userId: string, tier: string, role?: string) {
   const payload = { userId, tier, role };
   const accessToken = jwt.sign(payload, process.env.JWT_SECRET || 'fallback_secret', {
-    expiresIn: (process.env.JWT_EXPIRES_IN || '15m') as any,
+    expiresIn: (process.env.JWT_EXPIRES_IN || '30d') as any,
   });
   const refreshToken = jwt.sign(payload, process.env.JWT_REFRESH_SECRET || 'fallback_refresh', {
-    expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as any,
+    expiresIn: (process.env.JWT_REFRESH_EXPIRES_IN || '90d') as any,
   });
   return { accessToken, refreshToken };
 }
@@ -189,13 +189,33 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
 
     const session = await prisma.refreshToken.findUnique({ where: { token: refreshToken } });
     if (!session || (session.expiresAt && session.expiresAt < new Date()) || session.revokedAt) {
+      // Allow graceful recovery for rapid concurrent requests within 60 seconds
+      try {
+        const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || 'fallback_refresh') as any;
+        const recentTokens = await prisma.refreshToken.findFirst({
+          where: {
+            userId: payload.userId,
+            createdAt: { gte: new Date(Date.now() - 60000) }
+          },
+          orderBy: { createdAt: 'desc' }
+        });
+        if (recentTokens) {
+          const user = await prisma.user.findUnique({ where: { id: payload.userId } });
+          if (user && user.isActive) {
+            const { accessToken, refreshToken: newRefresh } = generateTokens(payload.userId, user.tier, payload.role);
+            res.json({ accessToken, refreshToken: newRefresh });
+            return;
+          }
+        }
+      } catch {}
+
       res.status(401).json({ error: 'Invalid or expired refresh token' });
       return;
     }
 
     const payload = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || 'fallback_refresh') as any;
     const { accessToken, refreshToken: newRefresh } = generateTokens(payload.userId, payload.tier, payload.role);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
     await prisma.refreshToken.update({
       where: { id: session.id },

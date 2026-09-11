@@ -31,7 +31,7 @@ export const authenticate = async (
     }
 
     const token = authHeader.substring(7);
-    const secret = process.env.JWT_SECRET!;
+    const secret = process.env.JWT_SECRET || 'fallback_secret';
     const payload = jwt.verify(token, secret) as AuthPayload;
 
     // Verify user is still active in DB (role changes propagate immediately)

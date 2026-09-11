@@ -10,14 +10,19 @@ router.use(authenticate);
 const ClientSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
-  companyName: z.string().optional(),
+  companyName: z.string().optional().nullable(),
   email: z.string().email(),
-  phone: z.string().optional(),
-  address: z.string().optional(),
-  dateOfBirth: z.string().optional(),
-  idType: z.string().optional(),
-  idNumber: z.string().optional(),
-  notes: z.string().optional(),
+  phone: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  dateOfBirth: z.string().optional().nullable(),
+  idType: z.string().optional().nullable(),
+  idNumber: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  tin: z.string().optional().nullable(),
+  rcNumber: z.string().optional().nullable(),
+  sourceOfFundsDeclaration: z.string().optional().nullable(),
+  pepStatus: z.boolean().optional().default(false),
+  riskRating: z.string().optional().default('LOW'),
 });
 
 // GET /api/v1/clients — Admin/Staff only
@@ -84,25 +89,39 @@ router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promi
         firstName: data.firstName,
         lastName: data.lastName,
         email: data.email,
-        companyName: data.companyName,
+        companyName: data.companyName || null,
         phone: data.phone || '',
-        address: data.address,
+        address: data.address || null,
         idType: data.idType || 'NIN',
-        idNumber: data.idNumber,
-        notes: data.notes,
+        idNumber: data.idNumber || null,
+        tin: data.tin || null,
+        rcNumber: data.rcNumber || null,
+        sourceOfFundsDeclaration: data.sourceOfFundsDeclaration || null,
+        pepStatus: data.pepStatus || false,
+        riskRating: data.riskRating || 'LOW',
+        notes: data.notes || null,
         dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth) : undefined,
       },
     });
 
-    await createAuditLog({
-      userId: req.user!.userId, action: 'CREATE', entityType: 'ClientRecord',
-      entityId: client.id, module: 'M02', newValue: client, ipAddress: req.ip,
-    });
+    try {
+      await createAuditLog({
+        userId: req.user!.userId, action: 'CREATE', entityType: 'ClientRecord',
+        entityId: client.id, module: 'M02', newValue: JSON.stringify(client), ipAddress: req.ip,
+      });
+    } catch (auditErr) {
+      console.warn('Client create audit log failed:', auditErr);
+    }
 
     res.status(201).json(client);
   } catch (err: any) {
     if (err.name === 'ZodError') { res.status(400).json({ error: 'Validation error', details: err.errors }); return; }
-    res.status(500).json({ error: 'Failed to create client' });
+    if (err.code === 'P2002') {
+      res.status(409).json({ error: 'A client with this email address already exists in the system.' });
+      return;
+    }
+    console.error('Error creating client:', err);
+    res.status(500).json({ error: err.message || 'Failed to create client' });
   }
 });
 

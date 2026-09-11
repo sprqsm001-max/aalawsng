@@ -63,6 +63,8 @@ export const registerBiometricLogin = async (userEmail: string, authToken: strin
   }
 };
 
+import axios from 'axios';
+
 /**
  * Perform Biometric Authentication challenge
  */
@@ -99,9 +101,33 @@ export const authenticateWithBiometrics = async (): Promise<{ success: boolean; 
       }
     }
 
+    // Attempt to obtain fresh access token from backend using saved refreshToken
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+    let accessToken = saved.accessToken;
+    let refreshToken = saved.refreshToken;
+
+    if (refreshToken) {
+      try {
+        const refreshRes = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
+        if (refreshRes.data?.accessToken) {
+          accessToken = refreshRes.data.accessToken;
+          refreshToken = refreshRes.data.refreshToken || refreshToken;
+          saved.accessToken = accessToken;
+          saved.refreshToken = refreshToken;
+          localStorage.setItem('aalawsng_biometric_auth', JSON.stringify(saved));
+        }
+      } catch (refreshErr) {
+        console.warn('Biometric refresh request failed, proceeding with saved credentials:', refreshErr);
+      }
+    }
+
     return {
       success: true,
-      data: saved
+      data: {
+        user: saved.user,
+        accessToken,
+        refreshToken,
+      }
     };
   } catch (err: any) {
     return {

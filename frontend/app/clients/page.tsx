@@ -33,10 +33,14 @@ export default function ClientsPage() {
   });
 
   const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
-    if (!isAuthenticated) router.replace('/login');
-    else loadData();
+    if (!isAuthenticated && typeof window !== 'undefined' && !localStorage.getItem('accessToken')) {
+      router.replace('/login');
+    } else {
+      loadData();
+    }
   }, [page, search, isAuthenticated]);
 
   const loadData = async () => {
@@ -45,13 +49,16 @@ export default function ClientsPage() {
       const { data } = await api.get(`/clients?page=${page}&limit=20${search ? `&search=${search}` : ''}`);
       setClients(data.clients || []);
       setTotal(data.total || 0);
-    } catch {}
+    } catch (err) {
+      console.error('Failed to load clients:', err);
+    }
     setLoading(false);
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
+    setFormError('');
     try {
       await api.post('/clients', form);
       setShowModal(false);
@@ -72,9 +79,15 @@ export default function ClientsPage() {
       });
       loadData();
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to create client');
+      const serverMsg = err.response?.data?.error || err.message;
+      if (err.response?.status === 401) {
+        setFormError('Authentication session was interrupted. Please check your credentials or log in again.');
+      } else {
+        setFormError(serverMsg || 'Failed to create client. Please verify all details.');
+      }
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
@@ -95,7 +108,7 @@ export default function ClientsPage() {
             <h1 className="page-title">Clients & CRM</h1>
             <p className="page-subtitle">{total} clients — verified with Nigerian identity & AML/CFT standards</p>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+          <button className="btn btn-primary" onClick={() => { setFormError(''); setShowModal(true); }}>
             <Plus size={16} /> New Client Intake
           </button>
         </div>
@@ -203,6 +216,24 @@ export default function ClientsPage() {
             <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '18px' }}>
               Per Nigerian AML/CFT regulations (NFIU/SCUML), collect valid national identification and corporate CAC information.
             </p>
+
+            {formError && (
+              <div style={{
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                color: '#f87171',
+                fontSize: '13px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '14px',
+              }}>
+                <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                <span>{formError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
