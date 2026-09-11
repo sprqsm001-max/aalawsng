@@ -1,5 +1,6 @@
 import requests
 import sys
+import time
 
 sys.stdout.reconfigure(encoding='utf-8')
 BASE_URL = 'https://portal.aalawsng.com/api/v1'
@@ -11,7 +12,8 @@ accounts = [
     ('client@demo.com', 'Client@2024!', 'Demo Account (ADMIN)')
 ]
 
-print('=== TESTING ALL ACCOUNTS FOR CLIENT INTAKE ===')
+ts = int(time.time())
+print(f'=== TESTING ALL ACCOUNTS FOR CLIENT INTAKE (ts={ts}) ===')
 for email, password, label in accounts:
     login = requests.post(f'{BASE_URL}/auth/login', json={'email': email, 'password': password})
     if login.status_code != 200:
@@ -24,7 +26,7 @@ for email, password, label in accounts:
     post = requests.post(f'{BASE_URL}/clients', headers=headers, json={
         'firstName': 'Verify',
         'lastName': label.split()[0],
-        'email': f'verify.{username}.auto@test.com'
+        'email': f'verify.{username}.{ts}@test.com'
     })
     if post.status_code == 201:
         print(f'✓ SUCCESS: {label} ({email}) -> Status {post.status_code} (Client ID: {post.json()["id"][:8]}...)')
