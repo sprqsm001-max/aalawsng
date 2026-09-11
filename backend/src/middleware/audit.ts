@@ -15,6 +15,16 @@ export const createAuditLog = async (params: {
   userAgent?: string;
 }) => {
   try {
+    const formatValue = (val: any): string | undefined => {
+      if (val === undefined || val === null) return undefined;
+      if (typeof val === 'string') return val;
+      try {
+        return JSON.stringify(val);
+      } catch {
+        return String(val);
+      }
+    };
+
     await prisma.auditLog.create({
       data: {
         userId: params.userId,
@@ -22,8 +32,8 @@ export const createAuditLog = async (params: {
         entityType: params.entityType,
         entityId: params.entityId,
         module: params.module,
-        oldValue: params.oldValue ?? undefined,
-        newValue: params.newValue ?? undefined,
+        oldValue: formatValue(params.oldValue),
+        newValue: formatValue(params.newValue),
         ipAddress: params.ipAddress,
         userAgent: params.userAgent,
       },
