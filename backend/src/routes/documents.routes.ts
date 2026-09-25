@@ -94,25 +94,50 @@ router.get('/:id', enforceClientScope, documentVisibilityGuard, async (req: Requ
   }
 });
 
-// GET /api/v1/documents/:id/download — Secure Authenticated File Stream
+// GET /api/v1/documents/:id/download — Secure Authenticated File Stream (Download & Inline View)
 router.get('/:id/download', enforceClientScope, documentVisibilityGuard, async (req: Request, res: Response): Promise<void> => {
   try {
     const doc = await prisma.document.findUnique({
       where: { id: req.params.id },
     });
-    if (!doc || !fs.existsSync(doc.filePath)) {
+    if (!doc) {
+      res.status(404).json({ error: 'Document record not found' });
+      return;
+    }
+
+    const resolvedPath = path.resolve(doc.filePath);
+    const fallbackPath = path.resolve(UPLOAD_DIR, path.basename(doc.filePath));
+    const targetPath = fs.existsSync(doc.filePath)
+      ? doc.filePath
+      : fs.existsSync(resolvedPath)
+        ? resolvedPath
+        : fs.existsSync(fallbackPath)
+          ? fallbackPath
+          : null;
+
+    if (!targetPath) {
       res.status(404).json({ error: 'Document file not found on disk' });
       return;
     }
 
-    await createAuditLog({
-      userId: req.user!.userId, action: 'DOCUMENT_DOWNLOADED', entityType: 'Document',
-      entityId: doc.id, module: 'M04', ipAddress: req.ip,
-    });
+    try {
+      await createAuditLog({
+        userId: req.user!.userId, action: 'DOCUMENT_DOWNLOADED', entityType: 'Document',
+        entityId: doc.id, module: 'M04', ipAddress: req.ip,
+      });
+    } catch {}
 
-    res.download(doc.filePath, doc.fileName || doc.title);
-  } catch {
-    res.status(500).json({ error: 'Failed to stream document' });
+    // Support inline preview in browser tabs (for PDFs, images, text)
+    if (req.query.inline === 'true' || req.query.view === '1') {
+      res.setHeader('Content-Type', doc.mimeType || 'application/octet-stream');
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(doc.fileName || doc.title)}"`);
+      fs.createReadStream(targetPath).pipe(res);
+      return;
+    }
+
+    res.download(targetPath, doc.fileName || doc.title);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to stream document' });
   }
 });
 

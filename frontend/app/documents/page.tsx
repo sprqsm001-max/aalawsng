@@ -19,6 +19,8 @@ export default function DocumentsPage() {
   const [saving, setSaving] = useState(false);
   const [matterId, setMatterId] = useState('');
 
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
   useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, [matterId]);
 
   const load = async () => {
@@ -33,6 +35,32 @@ export default function DocumentsPage() {
       setMatters(mRes.data.matters || []);
     } catch {}
     setLoading(false);
+  };
+
+  const handleDownload = async (doc: any, inline = false) => {
+    setDownloadingId(doc.id);
+    try {
+      const res = await api.get(`/documents/${doc.id}/download${inline ? '?inline=true' : ''}`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: doc.mimeType || 'application/octet-stream' });
+      const url = window.URL.createObjectURL(blob);
+      if (inline) {
+        window.open(url, '_blank');
+      } else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', doc.fileName || doc.title || doc.name || 'document');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+      setTimeout(() => window.URL.revokeObjectURL(url), 10000);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to download document');
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -94,13 +122,24 @@ export default function DocumentsPage() {
 
         <div className="table-container">
           <table>
-            <thead><tr><th>Name</th><th>Visibility</th><th>Matter</th><th>Uploaded By</th><th>Size</th><th>Version</th><th>Date</th></tr></thead>
+            <thead><tr><th>Name</th><th>Visibility</th><th>Matter</th><th>Uploaded By</th><th>Size</th><th>Version</th><th>Date</th><th style={{textAlign:'right'}}>Actions</th></tr></thead>
             <tbody>
-              {loading ? [...Array(6)].map((_,i)=><tr key={i}>{[...Array(7)].map((_,j)=><td key={j}><div className="skeleton" style={{height:'14px',borderRadius:'4px'}}/></td>)}</tr>)
-              : docs.length===0 ? <tr><td colSpan={7} style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>No documents found</td></tr>
+              {loading ? [...Array(6)].map((_,i)=><tr key={i}>{[...Array(8)].map((_,j)=><td key={j}><div className="skeleton" style={{height:'14px',borderRadius:'4px'}}/></td>)}</tr>)
+              : docs.length===0 ? <tr><td colSpan={8} style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>No documents found</td></tr>
               : docs.map((d:any) => (
                 <tr key={d.id}>
-                  <td><div style={{display:'flex',alignItems:'center',gap:'8px'}}><FileText size={14} style={{color:'var(--accent)',opacity:0.7}}/><span style={{color:'var(--text-primary)',fontWeight:500,fontSize:'13px'}}>{d.name}</span></div></td>
+                  <td>
+                    <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                      <FileText size={14} style={{color:'var(--accent)',opacity:0.7,flexShrink:0}}/>
+                      <button
+                        onClick={()=>handleDownload(d, true)}
+                        style={{background:'none',border:'none',color:'var(--text-primary)',fontWeight:500,fontSize:'13px',textAlign:'left',cursor:'pointer',padding:0,textDecoration:'underline',textUnderlineOffset:'3px'}}
+                        title="Click to view file"
+                      >
+                        {d.title || d.fileName || d.name}
+                      </button>
+                    </div>
+                  </td>
                   <td>
                     {d.visibility === 'CLIENT_VISIBLE'
                       ? <span className="badge badge-green" style={{display:'flex',alignItems:'center',gap:'4px',width:'fit-content'}}><Eye size={10}/>Client Visible</span>
@@ -111,6 +150,27 @@ export default function DocumentsPage() {
                   <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{fmtSize(d.fileSize)}</td>
                   <td><span className="badge badge-gray">v{d.version}</span></td>
                   <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{new Date(d.createdAt).toLocaleDateString('en-NG')}</td>
+                  <td style={{textAlign:'right'}}>
+                    <div style={{display:'flex',gap:'6px',justifyContent:'flex-end'}}>
+                      <button
+                        className="btn btn-sm btn-secondary"
+                        onClick={()=>handleDownload(d, true)}
+                        title="View document in browser"
+                        style={{display:'inline-flex',alignItems:'center',gap:'4px',fontSize:'11.5px',padding:'4px 8px'}}
+                      >
+                        <Eye size={12}/> View
+                      </button>
+                      <button
+                        className="btn btn-sm btn-primary"
+                        disabled={downloadingId===d.id}
+                        onClick={()=>handleDownload(d, false)}
+                        title="Download file to device"
+                        style={{display:'inline-flex',alignItems:'center',gap:'4px',fontSize:'11.5px',padding:'4px 8px'}}
+                      >
+                        <Download size={12}/> {downloadingId===d.id ? 'Saving…' : 'Download'}
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

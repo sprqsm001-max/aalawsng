@@ -49,6 +49,21 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       },
     });
 
+    // Map staff utilization
+    const mappedStaff = (staffUtilization || []).map((s: any) => ({
+      name: `${s.firstName || ''} ${s.lastName || ''}`.trim() || 'Staff Member',
+      role: s.role || 'ATTORNEY',
+      matterCount: s._count?.assignedMatters || 0,
+    }));
+
+    // Map top clients
+    const mappedClients = topClients.map((c: any) => ({
+      name: c.companyName || `${c.firstName || ''} ${c.lastName || ''}`.trim() || 'Client',
+      matterCount: c._count?.matters || 0,
+    }));
+
+    const totalInvoiced = Number(invoicesThisMonth._sum.totalAmount || 0);
+
     res.json({
       overview: {
         totalClients,
@@ -59,18 +74,30 @@ router.get('/', async (_req: Request, res: Response): Promise<void> => {
       },
       financial: {
         invoicesIssuedThisMonth: invoicesThisMonth._count,
-        invoicedAmountThisMonth: Number(invoicesThisMonth._sum.totalAmount || 0),
+        invoicedAmountThisMonth: totalInvoiced,
+        revenueThisMonth: totalInvoiced,
         billableHoursThisMonth: Number(timeEntriesThisMonth._sum.hours || 0),
       },
       matters: {
         statusBreakdown: matterStatusBreakdown,
         topClients,
       },
-      tasks: taskCompletion,
-      staff: staffUtilization,
+      tasks: {
+        statusBreakdown: taskCompletion,
+      },
+      staff: {
+        utilization: mappedStaff,
+      },
+      clients: {
+        topByMatters: mappedClients,
+      },
+      // Direct arrays for backwards-compatibility
+      taskList: taskCompletion,
+      staffList: staffUtilization,
     });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to fetch analytics' });
+    console.error('Analytics fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch analytics', details: err?.message });
   }
 });
 

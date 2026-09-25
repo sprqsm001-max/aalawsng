@@ -4,7 +4,7 @@ import api from '@/lib/api';
 import Sidebar from '@/components/Sidebar';
 import { useAuthStore } from '@/lib/store';
 import { useRouter } from 'next/navigation';
-import { Plus, Send, CreditCard, ExternalLink, CheckCircle } from 'lucide-react';
+import { Plus, Send, CreditCard, ExternalLink, CheckCircle, Eye, Printer, Download, X, FileText } from 'lucide-react';
 
 const statusColor: Record<string, string> = {
   DRAFT: 'badge-gray',
@@ -28,6 +28,9 @@ export default function InvoicesPage() {
   const [payingId, setPayingId] = useState<string | null>(null);
   const [clients, setClients] = useState<any[]>([]);
   const [matters, setMatters] = useState<any[]>([]);
+  const [selectedInvoice, setSelectedInvoice] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
 
   const [form, setForm] = useState({
     clientId: '',
@@ -69,12 +72,42 @@ export default function InvoicesPage() {
     setLoading(false);
   };
 
+  const openInvoiceModal = async (inv: any, autoPrint = false) => {
+    setSelectedInvoice(inv);
+    setLoadingDetails(true);
+    try {
+      const { data } = await api.get(`/invoices/${inv.id}`);
+      setSelectedInvoice(data);
+      if (autoPrint) {
+        setTimeout(() => window.print(), 500);
+      }
+    } catch {
+      // keep basic inv data if detail fetch fails
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
   const sendInvoice = async (id: string) => {
+    setSendingId(id);
     try {
       await api.patch(`/invoices/${id}/send`);
       loadData();
+      if (selectedInvoice && selectedInvoice.id === id) {
+        setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT' }));
+      }
     } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed');
+      try {
+        await api.patch(`/invoices/${id}/status`, { status: 'SENT' });
+        loadData();
+        if (selectedInvoice && selectedInvoice.id === id) {
+          setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT' }));
+        }
+      } catch (err2: any) {
+        alert(err.response?.data?.error || err2.response?.data?.error || 'Failed to send invoice');
+      }
+    } finally {
+      setSendingId(null);
     }
   };
 
@@ -226,9 +259,17 @@ export default function InvoicesPage() {
 
                   return (
                     <tr key={inv.id}>
-                      <td><code style={{ fontSize: '12px', color: 'var(--accent)' }}>{inv.invoiceNumber}</code></td>
+                      <td>
+                        <button
+                          onClick={() => openInvoiceModal(inv)}
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                          title="Click to view and print invoice"
+                        >
+                          <code style={{ fontSize: '12px', color: 'var(--accent)', textDecoration: 'underline' }}>{inv.invoiceNumber}</code>
+                        </button>
+                      </td>
                       <td style={{ fontSize: '13px' }}>
-                        {inv.client?.companyName || `${inv.client?.firstName} ${inv.client?.lastName}`}
+                        {inv.client?.companyName || `${inv.client?.firstName || ''} ${inv.client?.lastName || ''}`.trim() || 'Client'}
                       </td>
                       <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{inv.matter?.referenceNumber || '—'}</td>
                       <td><span className="badge badge-gray">{inv.currency || 'NGN'}</span></td>
@@ -248,10 +289,25 @@ export default function InvoicesPage() {
                         {inv.dueDate ? new Date(inv.dueDate).toLocaleDateString('en-NG') : '—'}
                       </td>
                       <td>
-                        <div style={{ display: 'flex', gap: '6px' }}>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <button
+                            className="btn btn-sm btn-secondary"
+                            onClick={() => openInvoiceModal(inv)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 8px' }}
+                            title="View / Print Invoice"
+                          >
+                            <Eye size={12} /> View
+                          </button>
+
                           {inv.status === 'DRAFT' && user?.tier !== 'CLIENT' && (
-                            <button className="btn btn-sm btn-secondary" onClick={() => sendInvoice(inv.id)} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                              <Send size={12} /> Send
+                            <button
+                              className="btn btn-sm btn-secondary"
+                              disabled={sendingId === inv.id}
+                              onClick={() => sendInvoice(inv.id)}
+                              style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 8px' }}
+                              title="Send invoice to client"
+                            >
+                              <Send size={12} /> {sendingId === inv.id ? 'Sending…' : 'Send'}
                             </button>
                           )}
 
@@ -418,6 +474,210 @@ export default function InvoicesPage() {
                 <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Generate Invoice'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice Detail / Printable Bill of Costs Modal */}
+      {selectedInvoice && (
+        <div className="modal-backdrop" onClick={() => setSelectedInvoice(null)} style={{ overflowY: 'auto', padding: '24px 0', zIndex: 1100 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px', width: '95%', margin: 'auto', padding: '28px', background: '#0e1117' }}>
+            {/* Action Bar (hidden on print) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '14px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span className={`badge ${statusColor[selectedInvoice.status] || 'badge-gray'}`} style={{ fontSize: '12px' }}>
+                  {selectedInvoice.status.replace(/_/g, ' ')}
+                </span>
+                <span className={`badge ${selectedInvoice.paymentDestination === 'CLIENT_ACCOUNT' || selectedInvoice.paymentDestination === 'TRUST' ? 'badge-gold' : 'badge-blue'}`}>
+                  {selectedInvoice.paymentDestination === 'CLIENT_ACCOUNT' || selectedInvoice.paymentDestination === 'TRUST' ? 'Client Account (LPAR 1964)' : 'Office Operating Account'}
+                </span>
+                {loadingDetails && <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Refreshing details…</span>}
+              </div>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => window.print()}
+                  style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                >
+                  <Printer size={14} /> Print / Save as PDF
+                </button>
+                {selectedInvoice.status === 'DRAFT' && user?.tier !== 'CLIENT' && (
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    disabled={sendingId === selectedInvoice.id}
+                    onClick={() => sendInvoice(selectedInvoice.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <Send size={14} /> {sendingId === selectedInvoice.id ? 'Sending…' : 'Send'}
+                  </button>
+                )}
+                {['SENT', 'PARTIALLY_PAID', 'OVERDUE'].includes(selectedInvoice.status) && (
+                  <button
+                    className="btn btn-sm btn-primary"
+                    disabled={payingId === selectedInvoice.id}
+                    onClick={() => handlePaystackPay(selectedInvoice)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  >
+                    <CreditCard size={14} /> Paystack
+                  </button>
+                )}
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setSelectedInvoice(null)}
+                  style={{ padding: '6px 10px' }}
+                  title="Close"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Document Sheet */}
+            <div style={{ background: '#161922', border: '1px solid var(--border)', borderRadius: '10px', padding: '30px' }}>
+              {/* Firm Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--accent)', paddingBottom: '18px', marginBottom: '20px' }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <img src="/logo.png" alt="AALAWSNG" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                    <div>
+                      <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.03em' }}>
+                        ADEOLA KOLAWOLE &amp; ASSOCIATES
+                      </h2>
+                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--accent)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                        Barristers, Solicitors &amp; Legal Consultants
+                      </p>
+                    </div>
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                    Plot 12, Admiralty Way, Lekki Phase 1, Lagos, Nigeria<br />
+                    Tel: +234 800 000 0000 | Email: billing@aalawsng.com | Web: portal.aalawsng.com
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    BILL OF COSTS
+                  </h3>
+                  <code style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent)', display: 'block', marginTop: '4px' }}>
+                    {selectedInvoice.invoiceNumber}
+                  </code>
+                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
+                    Issued: {new Date(selectedInvoice.createdAt || Date.now()).toLocaleDateString('en-NG')}<br />
+                    Due Date: {selectedInvoice.dueDate ? new Date(selectedInvoice.dueDate).toLocaleDateString('en-NG') : 'Upon Receipt'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Billed To & Matter Reference */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px', padding: '14px 16px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em' }}>
+                    BILLED TO:
+                  </span>
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {selectedInvoice.client?.companyName || `${selectedInvoice.client?.firstName || ''} ${selectedInvoice.client?.lastName || ''}`.trim() || 'Valued Client'}
+                  </h4>
+                  {selectedInvoice.client?.companyName && (
+                    <p style={{ margin: '0 0 2px', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                      Attn: {selectedInvoice.client?.firstName} {selectedInvoice.client?.lastName}
+                    </p>
+                  )}
+                  <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                    {selectedInvoice.client?.email || ''} {selectedInvoice.client?.phone ? `• ${selectedInvoice.client?.phone}` : ''}
+                  </p>
+                </div>
+                <div>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em' }}>
+                    MATTER REFERENCE:
+                  </span>
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {selectedInvoice.matter?.title || 'General Legal Representation'}
+                  </h4>
+                  <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                    Case Ref: <code>{selectedInvoice.matter?.referenceNumber || 'AAL-GENERAL'}</code>
+                  </p>
+                </div>
+              </div>
+
+              {/* Line items Table */}
+              <table style={{ width: '100%', marginBottom: '18px', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Description of Legal Services</th>
+                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>Units</th>
+                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Rate</th>
+                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(selectedInvoice.lineItems && selectedInvoice.lineItems.length > 0 ? selectedInvoice.lineItems : [
+                    { description: 'Professional Legal Representation & Advisory Services', quantity: 1, unitPrice: selectedInvoice.subtotal || selectedInvoice.totalAmount, amount: selectedInvoice.subtotal || selectedInvoice.totalAmount }
+                  ]).map((item: any, i: number) => {
+                    const isNgn = (selectedInvoice.currency || 'NGN') === 'NGN';
+                    const curSym = isNgn ? '₦' : '$';
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <td style={{ padding: '10px 4px', fontSize: '12px', color: 'var(--text-primary)' }}>
+                          {item.description}
+                          {item.type && (
+                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                              [{item.type}]
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          {item.quantity || 1}
+                        </td>
+                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                          {curSym}{Number(item.unitPrice || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'right', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                          {curSym}{Number(item.amount || (item.quantity * item.unitPrice) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {/* Totals Summary */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
+                <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <span>Subtotal:</span>
+                    <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.subtotal || selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  {Number(selectedInvoice.taxAmount) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      <span>VAT / Statutory Tax:</span>
+                      <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.taxAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                    <span>Total Amount:</span>
+                    <span style={{ color: 'var(--accent)', fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                  {Number(selectedInvoice.amountPaid) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#4ade80' }}>
+                      <span>Amount Paid:</span>
+                      <span style={{ fontFamily: 'monospace' }}>-{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                  {Number(selectedInvoice.amountPaid) > 0 && (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600, color: '#f87171', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
+                      <span>Balance Outstanding:</span>
+                      <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount - selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Statutory Note */}
+              <div style={{ background: 'var(--surface)', padding: '12px 14px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                <strong style={{ color: 'var(--text-secondary)' }}>Terms of Settlement:</strong><br />
+                {selectedInvoice.notes || 'Payment is requested within 14 calendar days of issue date.'}<br />
+                Statutory Designation: <strong>{selectedInvoice.paymentDestination === 'CLIENT_ACCOUNT' || selectedInvoice.paymentDestination === 'TRUST' ? 'Statutory Client Trust Account (LPAR 1964 Regulated)' : 'Firm Operating Account'}</strong>.
+              </div>
+            </div>
           </div>
         </div>
       )}

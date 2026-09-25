@@ -226,6 +226,56 @@ router.post('/', requireStaffOrAdmin, async (req: Request, res: Response): Promi
   }
 });
 
+// PATCH & POST /api/v1/invoices/:id/send — Send invoice to client
+const handleSendInvoice = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const existing = await prisma.invoice.findUnique({
+      where: { id: req.params.id },
+      include: { client: true, matter: true },
+    });
+    if (!existing) {
+      res.status(404).json({ error: 'Invoice not found' });
+      return;
+    }
+
+    const updated = await prisma.invoice.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'SENT',
+        sentAt: new Date(),
+      },
+      include: {
+        client: { select: { firstName: true, lastName: true, companyName: true, email: true } },
+        matter: { select: { referenceNumber: true, title: true } },
+        lineItems: true,
+      },
+    });
+
+    try {
+      await createAuditLog({
+        userId: req.user!.userId,
+        action: 'INVOICE_SENT',
+        entityType: 'Invoice',
+        entityId: updated.id,
+        module: 'M07',
+        newValue: JSON.stringify({
+          invoiceNumber: updated.invoiceNumber,
+          recipient: updated.client?.email,
+          status: 'SENT',
+        }),
+        ipAddress: req.ip,
+      });
+    } catch {}
+
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to send invoice' });
+  }
+};
+
+router.patch('/:id/send', requireStaffOrAdmin, handleSendInvoice);
+router.post('/:id/send', requireStaffOrAdmin, handleSendInvoice);
+
 // PATCH /api/v1/invoices/:id/status — Update status (send, void, etc.)
 router.patch('/:id/status', requireStaffOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
