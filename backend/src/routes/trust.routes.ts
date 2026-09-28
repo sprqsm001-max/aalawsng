@@ -464,7 +464,7 @@ router.post('/reconcile', requireAdmin, async (req: Request, res: Response): Pro
 });
 
 // GET /api/v1/trust/reconciliations — History of reconciliation certificates
-router.get('/reconciliations', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+router.get('/reconciliations', requireStaffOrAdmin, async (req: Request, res: Response): Promise<void> => {
   try {
     const history = await prisma.trustReconciliation.findMany({
       orderBy: { reconciledAt: 'desc' },

@@ -36,14 +36,33 @@ export default function TrustAccountingPage() {
   const [saving, setSaving] = useState(false);
   const [clients, setClients] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (!isAuthenticated) {
+    setMounted(true);
+  }, []);
+
+  const fetchClients = async () => {
+    try {
+      const res = await api.get('/clients?limit=100');
+      const cData = res.data;
+      const list = cData.clients || (Array.isArray(cData) ? cData : []);
+      if (list.length > 0) setClients(list);
+    } catch (err) {
+      console.error('Failed to fetch clients:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!mounted) return;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('aalawsng-auth')) : null;
+    if (!isAuthenticated && !token) {
       router.replace('/login');
       return;
     }
     loadData();
-  }, [currencyFilter, categoryFilter, isAuthenticated]);
+    fetchClients();
+  }, [mounted, currencyFilter, categoryFilter, isAuthenticated]);
 
   const loadData = async () => {
     setLoading(true);
@@ -52,16 +71,28 @@ export default function TrustAccountingPage() {
       const catParam = categoryFilter !== 'ALL' ? `category=${categoryFilter}` : '';
       const query = [curParam, catParam].filter(Boolean).join('&');
 
-      const [ledgersRes, reconRes, cRes, invRes] = await Promise.all([
+      const [ledgersRes, reconRes, cRes, invRes] = await Promise.allSettled([
         api.get(`/trust/ledgers${query ? `?${query}` : ''}`),
         api.get('/trust/reconciliations'),
         api.get('/clients?limit=100'),
         api.get('/invoices?limit=100'),
       ]);
-      setLedgers(ledgersRes.data || []);
-      setReconciliations(reconRes.data || []);
-      setClients(cRes.data.clients || []);
-      setInvoices(invRes.data.invoices || []);
+
+      if (ledgersRes.status === 'fulfilled') {
+        setLedgers(ledgersRes.value.data || []);
+      }
+      if (reconRes.status === 'fulfilled') {
+        setReconciliations(reconRes.value.data || []);
+      }
+      if (cRes.status === 'fulfilled') {
+        const cData = cRes.value.data;
+        const list = cData.clients || (Array.isArray(cData) ? cData : []);
+        setClients(list);
+      }
+      if (invRes.status === 'fulfilled') {
+        const iData = invRes.value.data;
+        setInvoices(iData.invoices || (Array.isArray(iData) ? iData : []));
+      }
     } catch (err: any) {
       console.error(err);
     } finally {
@@ -201,10 +232,10 @@ export default function TrustAccountingPage() {
             <button className="btn btn-secondary" onClick={() => setReconModal(true)}>
               <Scale size={15} /> 3-Way Reconciliation
             </button>
-            <button className="btn btn-secondary" onClick={() => setTransferModal(true)}>
+            <button className="btn btn-secondary" onClick={() => { fetchClients(); setTransferModal(true); }}>
               <ArrowRight size={15} /> Transfer Earned Fees
             </button>
-            <button className="btn btn-primary" onClick={() => setDepositModal(true)}>
+            <button className="btn btn-primary" onClick={() => { fetchClients(); setDepositModal(true); }}>
               <Plus size={15} /> Record Receipt
             </button>
           </div>

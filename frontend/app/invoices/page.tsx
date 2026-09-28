@@ -47,29 +47,52 @@ export default function InvoicesPage() {
 
   const [saving, setSaving] = useState(false);
 
+  const [mounted, setMounted] = useState(false);
+
   useEffect(() => {
-    if (!isAuthenticated) router.replace('/login');
-    else loadData();
-  }, [statusFilter, currencyFilter, isAuthenticated]);
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('aalawsng-auth')) : null;
+    if (!isAuthenticated && !token) {
+      router.replace('/login');
+      return;
+    }
+    loadData();
+  }, [mounted, statusFilter, currencyFilter, isAuthenticated]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [invRes, cRes, mRes] = await Promise.all([
+      const [invRes, cRes, mRes] = await Promise.allSettled([
         api.get(`/invoices?limit=50${statusFilter ? `&status=${statusFilter}` : ''}`),
         api.get('/clients?limit=100'),
         api.get('/matters?limit=100'),
       ]);
-      let list = invRes.data.invoices || [];
-      if (currencyFilter !== 'ALL') {
-        list = list.filter((i: any) => i.currency === currencyFilter);
+
+      if (invRes.status === 'fulfilled') {
+        let list = invRes.value.data.invoices || [];
+        if (currencyFilter !== 'ALL') {
+          list = list.filter((i: any) => i.currency === currencyFilter);
+        }
+        setInvoices(list);
+        setTotal(invRes.value.data.total || 0);
       }
-      setInvoices(list);
-      setTotal(invRes.data.total || 0);
-      setClients(cRes.data.clients || []);
-      setMatters(mRes.data.matters || []);
-    } catch {}
-    setLoading(false);
+      if (cRes.status === 'fulfilled') {
+        const cData = cRes.value.data;
+        setClients(cData.clients || (Array.isArray(cData) ? cData : []));
+      }
+      if (mRes.status === 'fulfilled') {
+        const mData = mRes.value.data;
+        setMatters(mData.matters || (Array.isArray(mData) ? mData : []));
+      }
+    } catch (err) {
+      console.error('Failed to load invoices data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openInvoiceModal = async (inv: any, autoPrint = false) => {
@@ -88,22 +111,28 @@ export default function InvoicesPage() {
     }
   };
 
-  const sendInvoice = async (id: string) => {
+  const sendInvoice = async (id: string, e?: React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     setSendingId(id);
     try {
-      await api.patch(`/invoices/${id}/send`);
-      loadData();
+      const res = await api.patch(`/invoices/${id}/send`);
+      const updated = res.data;
+      setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: 'SENT', sentAt: new Date().toISOString() } : inv));
       if (selectedInvoice && selectedInvoice.id === id) {
-        setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT' }));
+        setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT', sentAt: new Date().toISOString() }));
       }
     } catch (err: any) {
       try {
         await api.patch(`/invoices/${id}/status`, { status: 'SENT' });
-        loadData();
+        setInvoices(prev => prev.map(inv => inv.id === id ? { ...inv, status: 'SENT', sentAt: new Date().toISOString() } : inv));
         if (selectedInvoice && selectedInvoice.id === id) {
-          setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT' }));
+          setSelectedInvoice((prev: any) => ({ ...prev, status: 'SENT', sentAt: new Date().toISOString() }));
         }
       } catch (err2: any) {
+        console.error('Invoice send error:', err, err2);
         alert(err.response?.data?.error || err2.response?.data?.error || 'Failed to send invoice');
       }
     } finally {
@@ -184,7 +213,7 @@ export default function InvoicesPage() {
         </div>
       </div>
 
-      <main className="main-content">
+      <main className={`main-content ${selectedInvoice ? 'no-print' : ''}`}>
         <div className="page-header">
           <div>
             <h1 className="page-title">Invoices & Billing</h1>
@@ -301,9 +330,10 @@ export default function InvoicesPage() {
 
                           {inv.status === 'DRAFT' && user?.tier !== 'CLIENT' && (
                             <button
+                              type="button"
                               className="btn btn-sm btn-secondary"
                               disabled={sendingId === inv.id}
-                              onClick={() => sendInvoice(inv.id)}
+                              onClick={(e) => sendInvoice(inv.id, e)}
                               style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', padding: '4px 8px' }}
                               title="Send invoice to client"
                             >
@@ -481,9 +511,9 @@ export default function InvoicesPage() {
       {/* Invoice Detail / Printable Bill of Costs Modal */}
       {selectedInvoice && (
         <div className="modal-backdrop" onClick={() => setSelectedInvoice(null)} style={{ overflowY: 'auto', padding: '24px 0', zIndex: 1100 }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '820px', width: '95%', margin: 'auto', padding: '28px', background: '#0e1117' }}>
-            {/* Action Bar (hidden on print) */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', paddingBottom: '14px', borderBottom: '1px solid var(--border)' }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '860px', width: '95%', margin: 'auto', padding: '20px', background: '#0a0d14' }}>
+            {/* Action Bar (strictly hidden on print) */}
+            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', paddingBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                 <span className={`badge ${statusColor[selectedInvoice.status] || 'badge-gray'}`} style={{ fontSize: '12px' }}>
                   {selectedInvoice.status.replace(/_/g, ' ')}
@@ -495,24 +525,28 @@ export default function InvoicesPage() {
               </div>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <button
+                  type="button"
                   className="btn btn-sm btn-primary"
                   onClick={() => window.print()}
                   style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                  title="Print or Save official PDF"
                 >
                   <Printer size={14} /> Print / Save as PDF
                 </button>
                 {selectedInvoice.status === 'DRAFT' && user?.tier !== 'CLIENT' && (
                   <button
+                    type="button"
                     className="btn btn-sm btn-secondary"
                     disabled={sendingId === selectedInvoice.id}
-                    onClick={() => sendInvoice(selectedInvoice.id)}
+                    onClick={(e) => sendInvoice(selectedInvoice.id, e)}
                     style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
                   >
-                    <Send size={14} /> {sendingId === selectedInvoice.id ? 'Sending…' : 'Send'}
+                    <Send size={14} /> {sendingId === selectedInvoice.id ? 'Sending…' : 'Send to Client'}
                   </button>
                 )}
                 {['SENT', 'PARTIALLY_PAID', 'OVERDUE'].includes(selectedInvoice.status) && (
                   <button
+                    type="button"
                     className="btn btn-sm btn-primary"
                     disabled={payingId === selectedInvoice.id}
                     onClick={() => handlePaystackPay(selectedInvoice)}
@@ -522,6 +556,7 @@ export default function InvoicesPage() {
                   </button>
                 )}
                 <button
+                  type="button"
                   className="btn btn-sm btn-secondary"
                   onClick={() => setSelectedInvoice(null)}
                   style={{ padding: '6px 10px' }}
@@ -532,80 +567,118 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Printable Document Sheet */}
-            <div style={{ background: '#161922', border: '1px solid var(--border)', borderRadius: '10px', padding: '30px' }}>
-              {/* Firm Header */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--accent)', paddingBottom: '18px', marginBottom: '20px' }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <img src="/logo.png" alt="AALAWSNG" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
-                    <div>
-                      <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.03em' }}>
-                        ADEOLA KOLAWOLE &amp; ASSOCIATES
-                      </h2>
-                      <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--accent)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                        Barristers, Solicitors &amp; Legal Consultants
-                      </p>
-                    </div>
+            {/* Printable Official Document Sheet (Pure White, Pristine Legal Typography) */}
+            <div
+              className="printable-invoice"
+              style={{
+                background: '#ffffff',
+                color: '#0f172a',
+                borderRadius: '8px',
+                padding: '40px',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                lineHeight: 1.5,
+              }}
+            >
+              {/* Firm Official Letterhead */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '3px solid #b45309', paddingBottom: '18px', marginBottom: '22px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                  <img
+                    src="/logo.png"
+                    alt="AALAWSNG"
+                    style={{ width: '48px', height: '48px', borderRadius: '50%', objectFit: 'cover', border: '1px solid #d97706', marginTop: '2px' }}
+                  />
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: '19px', fontWeight: 800, color: '#0f172a', letterSpacing: '0.02em', fontFamily: 'serif' }}>
+                      ADEOLA KOLAWOLE &amp; ASSOCIATES
+                    </h2>
+                    <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#b45309', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                      Barristers, Solicitors &amp; Legal Consultants
+                    </p>
+                    <p style={{ margin: '6px 0 0', fontSize: '11px', color: '#475569', lineHeight: 1.4 }}>
+                      Plot 12, Admiralty Way, Lekki Phase 1, Lagos, Nigeria<br />
+                      Tel: +234 800 000 0000 · Email: billing@aalawsng.com · Web: portal.aalawsng.com
+                    </p>
                   </div>
-                  <p style={{ margin: '8px 0 0', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                    Plot 12, Admiralty Way, Lekki Phase 1, Lagos, Nigeria<br />
-                    Tel: +234 800 000 0000 | Email: billing@aalawsng.com | Web: portal.aalawsng.com
-                  </p>
                 </div>
+
                 <div style={{ textAlign: 'right' }}>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  <h3 style={{ margin: 0, fontSize: '17px', fontWeight: 800, color: '#0f172a', letterSpacing: '0.04em' }}>
                     BILL OF COSTS
                   </h3>
-                  <code style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent)', display: 'block', marginTop: '4px' }}>
+                  <div style={{ fontSize: '13.5px', fontWeight: 700, color: '#b45309', fontFamily: 'monospace', margin: '4px 0 2px' }}>
                     {selectedInvoice.invoiceNumber}
-                  </code>
-                  <p style={{ margin: '4px 0 0', fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Issued: {new Date(selectedInvoice.createdAt || Date.now()).toLocaleDateString('en-NG')}<br />
-                    Due Date: {selectedInvoice.dueDate ? new Date(selectedInvoice.dueDate).toLocaleDateString('en-NG') : 'Upon Receipt'}
+                  </div>
+                  <p style={{ margin: '2px 0 0', fontSize: '11px', color: '#475569' }}>
+                    Date Issued: <strong>{new Date(selectedInvoice.createdAt || Date.now()).toLocaleDateString('en-NG')}</strong><br />
+                    Due Date: <strong>{selectedInvoice.dueDate ? new Date(selectedInvoice.dueDate).toLocaleDateString('en-NG') : 'Upon Receipt'}</strong>
                   </p>
+                  <div style={{ marginTop: '6px' }}>
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      background: selectedInvoice.status === 'PAID' ? '#dcfce7' : selectedInvoice.status === 'SENT' ? '#e0f2fe' : '#f1f5f9',
+                      color: selectedInvoice.status === 'PAID' ? '#15803d' : selectedInvoice.status === 'SENT' ? '#0369a1' : '#475569',
+                      border: `1px solid ${selectedInvoice.status === 'PAID' ? '#86efac' : selectedInvoice.status === 'SENT' ? '#7dd3fc' : '#cbd5e1'}`
+                    }}>
+                      {selectedInvoice.status.replace(/_/g, ' ')}
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              {/* Billed To & Matter Reference */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px', padding: '14px 16px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                <div>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em' }}>
+              {/* Billed To & Matter Reference Boxes */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '18px', marginBottom: '22px' }}>
+                <div style={{ padding: '14px 16px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#b45309', fontWeight: 800, letterSpacing: '0.06em' }}>
                     BILLED TO:
                   </span>
-                  <h4 style={{ margin: '4px 0 2px', fontSize: '13.5px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '13.5px', fontWeight: 700, color: '#0f172a' }}>
                     {selectedInvoice.client?.companyName || `${selectedInvoice.client?.firstName || ''} ${selectedInvoice.client?.lastName || ''}`.trim() || 'Valued Client'}
                   </h4>
                   {selectedInvoice.client?.companyName && (
-                    <p style={{ margin: '0 0 2px', fontSize: '11.5px', color: 'var(--text-secondary)' }}>
+                    <p style={{ margin: '0 0 2px', fontSize: '11px', color: '#334155' }}>
                       Attn: {selectedInvoice.client?.firstName} {selectedInvoice.client?.lastName}
                     </p>
                   )}
-                  <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                    {selectedInvoice.client?.email || ''} {selectedInvoice.client?.phone ? `• ${selectedInvoice.client?.phone}` : ''}
+                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                    {selectedInvoice.client?.email || ''} {selectedInvoice.client?.phone ? `· ${selectedInvoice.client?.phone}` : ''}
                   </p>
                 </div>
-                <div>
-                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, letterSpacing: '0.06em' }}>
+
+                <div style={{ padding: '14px 16px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <span style={{ fontSize: '10px', textTransform: 'uppercase', color: '#b45309', fontWeight: 800, letterSpacing: '0.06em' }}>
                     MATTER REFERENCE:
                   </span>
-                  <h4 style={{ margin: '4px 0 2px', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                    {selectedInvoice.matter?.title || 'General Legal Representation'}
+                  <h4 style={{ margin: '4px 0 2px', fontSize: '13px', fontWeight: 700, color: '#0f172a' }}>
+                    {selectedInvoice.matter?.title || 'Professional Legal Representation & Advisory'}
                   </h4>
-                  <p style={{ margin: 0, fontSize: '11.5px', color: 'var(--text-muted)' }}>
-                    Case Ref: <code>{selectedInvoice.matter?.referenceNumber || 'AAL-GENERAL'}</code>
+                  <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                    Case File: <strong style={{ color: '#0f172a', fontFamily: 'monospace' }}>{selectedInvoice.matter?.referenceNumber || 'AAL-GENERAL'}</strong>
                   </p>
                 </div>
               </div>
 
-              {/* Line items Table */}
+              {/* Legal Services & Disbursements Table */}
               <table style={{ width: '100%', marginBottom: '18px', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
-                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Description of Legal Services</th>
-                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'center' }}>Units</th>
-                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Rate</th>
-                    <th style={{ padding: '8px 4px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>Total</th>
+                  <tr style={{ background: '#f1f5f9', borderTop: '1px solid #cbd5e1', borderBottom: '2px solid #0f172a', textAlign: 'left' }}>
+                    <th style={{ padding: '9px 10px', fontSize: '10.5px', color: '#0f172a', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.04em' }}>
+                      Description of Legal Services &amp; Disbursements
+                    </th>
+                    <th style={{ padding: '9px 10px', fontSize: '10.5px', color: '#0f172a', textTransform: 'uppercase', fontWeight: 700, textAlign: 'center', width: '60px' }}>
+                      Qty
+                    </th>
+                    <th style={{ padding: '9px 10px', fontSize: '10.5px', color: '#0f172a', textTransform: 'uppercase', fontWeight: 700, textAlign: 'right', width: '120px' }}>
+                      Rate
+                    </th>
+                    <th style={{ padding: '9px 10px', fontSize: '10.5px', color: '#0f172a', textTransform: 'uppercase', fontWeight: 700, textAlign: 'right', width: '130px' }}>
+                      Amount
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -615,22 +688,22 @@ export default function InvoicesPage() {
                     const isNgn = (selectedInvoice.currency || 'NGN') === 'NGN';
                     const curSym = isNgn ? '₦' : '$';
                     return (
-                      <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                        <td style={{ padding: '10px 4px', fontSize: '12px', color: 'var(--text-primary)' }}>
-                          {item.description}
+                      <tr key={i} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                        <td style={{ padding: '10px 10px', fontSize: '12px', color: '#1e293b' }}>
+                          <span style={{ fontWeight: 600 }}>{item.description}</span>
                           {item.type && (
-                            <span style={{ fontSize: '10px', color: 'var(--text-muted)', marginLeft: '6px' }}>
+                            <span style={{ fontSize: '10px', color: '#64748b', marginLeft: '6px', textTransform: 'uppercase' }}>
                               [{item.type}]
                             </span>
                           )}
                         </td>
-                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        <td style={{ padding: '10px 10px', fontSize: '12px', textAlign: 'center', color: '#475569' }}>
                           {item.quantity || 1}
                         </td>
-                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'right', color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                        <td style={{ padding: '10px 10px', fontSize: '12px', textAlign: 'right', color: '#334155', fontFamily: 'monospace' }}>
                           {curSym}{Number(item.unitPrice || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                         </td>
-                        <td style={{ padding: '10px 4px', fontSize: '12px', textAlign: 'right', fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                        <td style={{ padding: '10px 10px', fontSize: '12px', textAlign: 'right', fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>
                           {curSym}{Number(item.amount || (item.quantity * item.unitPrice) || 0).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
@@ -640,42 +713,83 @@ export default function InvoicesPage() {
               </table>
 
               {/* Totals Summary */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
-                <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '22px' }}>
+                <div style={{ width: '300px', display: 'flex', flexDirection: 'column', gap: '6px', background: '#f8fafc', padding: '14px 18px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
                     <span>Subtotal:</span>
-                    <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.subtotal || selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                    <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>
+                      {(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.subtotal || selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                   {Number(selectedInvoice.taxAmount) > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#475569' }}>
                       <span>VAT / Statutory Tax:</span>
-                      <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.taxAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>
+                        {(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.taxAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   )}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', borderTop: '1px solid var(--border)', paddingTop: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 800, color: '#0f172a', borderTop: '2px solid #0f172a', paddingTop: '8px', marginTop: '2px' }}>
                     <span>Total Amount:</span>
-                    <span style={{ color: 'var(--accent)', fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                    <span style={{ color: '#b45309', fontFamily: 'monospace' }}>
+                      {(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                   {Number(selectedInvoice.amountPaid) > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#4ade80' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#16a34a' }}>
                       <span>Amount Paid:</span>
-                      <span style={{ fontFamily: 'monospace' }}>-{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                      <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                        -{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   )}
                   {Number(selectedInvoice.amountPaid) > 0 && (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 600, color: '#f87171', borderTop: '1px dashed var(--border)', paddingTop: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: 700, color: '#dc2626', borderTop: '1px dashed #cbd5e1', paddingTop: '6px' }}>
                       <span>Balance Outstanding:</span>
-                      <span style={{ fontFamily: 'monospace' }}>{(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount - selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}</span>
+                      <span style={{ fontFamily: 'monospace' }}>
+                        {(selectedInvoice.currency === 'USD' ? '$' : '₦')}{Number(selectedInvoice.totalAmount - selectedInvoice.amountPaid).toLocaleString('en-NG', { minimumFractionDigits: 2 })}
+                      </span>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Statutory Note */}
-              <div style={{ background: 'var(--surface)', padding: '12px 14px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                <strong style={{ color: 'var(--text-secondary)' }}>Terms of Settlement:</strong><br />
-                {selectedInvoice.notes || 'Payment is requested within 14 calendar days of issue date.'}<br />
-                Statutory Designation: <strong>{selectedInvoice.paymentDestination === 'CLIENT_ACCOUNT' || selectedInvoice.paymentDestination === 'TRUST' ? 'Statutory Client Trust Account (LPAR 1964 Regulated)' : 'Firm Operating Account'}</strong>.
+              {/* Settlement Remittance & Bank Instructions */}
+              <div style={{ background: '#f8fafc', padding: '14px 16px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '11px', color: '#334155', lineHeight: 1.6, marginBottom: '22px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '16px' }}>
+                  <div>
+                    <strong style={{ color: '#0f172a', display: 'block', marginBottom: '4px', textTransform: 'uppercase', fontSize: '10.5px' }}>
+                      Remittance / Bank Transfer Instructions:
+                    </strong>
+                    Bank Name: <strong>Access Bank Plc</strong><br />
+                    Account Name: <strong>Adeola Kolawole &amp; Associates</strong><br />
+                    Account Number: <strong>0123456789</strong> (Naira) · <strong>0987654321</strong> (USD)<br />
+                    Designation: <strong>{selectedInvoice.paymentDestination === 'CLIENT_ACCOUNT' || selectedInvoice.paymentDestination === 'TRUST' ? 'Client Trust Account (LPAR 1964 Regulated)' : 'Firm Operating Account'}</strong>
+                  </div>
+                  <div>
+                    <strong style={{ color: '#0f172a', display: 'block', marginBottom: '4px', textTransform: 'uppercase', fontSize: '10.5px' }}>
+                      Terms &amp; Statutory Governance:
+                    </strong>
+                    {selectedInvoice.notes || 'Payment is requested within 14 calendar days of bill presentation.'}<br />
+                    Governed under the Legal Practitioners Act and Legal Practitioners’ Accounts Rules 1964.
+                  </div>
+                </div>
+              </div>
+
+              {/* Law Firm Official Attestation / Signatory */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid #e2e8f0', paddingTop: '16px', marginTop: '10px' }}>
+                <div style={{ fontSize: '10.5px', color: '#64748b' }}>
+                  AALAWSNG System-Generated Legal Bill of Costs · Portal Verification Ref: <code>{selectedInvoice.id}</code>
+                </div>
+                <div style={{ textAlign: 'right', minWidth: '220px' }}>
+                  <p style={{ margin: '0 0 24px', fontSize: '11.5px', color: '#0f172a', fontWeight: 600 }}>
+                    For: <strong>ADEOLA KOLAWOLE &amp; ASSOCIATES</strong>
+                  </p>
+                  <div style={{ borderBottom: '1px solid #0f172a', width: '200px', marginLeft: 'auto', marginBottom: '4px' }}></div>
+                  <p style={{ margin: 0, fontSize: '10.5px', color: '#475569', fontWeight: 600 }}>
+                    Authorized Legal Practitioner / Managing Partner
+                  </p>
+                </div>
               </div>
             </div>
           </div>

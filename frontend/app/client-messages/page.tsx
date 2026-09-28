@@ -15,25 +15,66 @@ export default function ClientMessagingPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
   const [form, setForm] = useState({ clientId:'', matterId:'', subject:'', body:'' });
   const [saving, setSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('aalawsng-auth')) : null;
+    if (!isAuthenticated && !token) {
+      router.replace('/login');
+      return;
+    }
+    load();
+  }, [mounted, isAuthenticated]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [msgRes, cRes, mRes] = await Promise.all([
+      const [msgRes, cRes, mRes] = await Promise.allSettled([
         api.get('/client-messages?limit=30'),
         api.get('/clients?limit=100'),
         api.get('/matters?limit=100'),
       ]);
-      setMessages(msgRes.data.messages || []);
-      setTotal(msgRes.data.total || 0);
-      setClients(cRes.data.clients || []);
-      setMatters(mRes.data.matters || []);
-    } catch {}
-    setLoading(false);
+
+      if (msgRes.status === 'fulfilled') {
+        setMessages(msgRes.value.data.messages || msgRes.value.data || []);
+        setTotal(msgRes.value.data.total || 0);
+      }
+      if (cRes.status === 'fulfilled') {
+        const cData = cRes.value.data;
+        setClients(cData.clients || (Array.isArray(cData) ? cData : []));
+      }
+      if (mRes.status === 'fulfilled') {
+        const mData = mRes.value.data;
+        setMatters(mData.matters || (Array.isArray(mData) ? mData : []));
+      }
+    } catch (err) {
+      console.error('Failed to load client messages:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openMessage = (msg: any) => {
+    setSelectedMessage(msg);
+  };
+
+  const handleReply = (msg: any) => {
+    setForm({
+      clientId: msg.clientId || msg.client?.id || '',
+      matterId: msg.matterId || msg.matter?.id || '',
+      subject: msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || ''}`,
+      body: `\n\n--- On ${new Date(msg.sentAt).toLocaleString('en-NG')}, client message: ---\n${msg.body}`,
+    });
+    setSelectedMessage(null);
+    setShowModal(true);
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -77,16 +118,26 @@ export default function ClientMessagingPage() {
               <p>No client messages yet</p>
             </div>
           ) : messages.map((m:any)=>(
-            <div key={m.id} className="card" style={{borderLeft:m.direction==='CLIENT_TO_STAFF'?'3px solid var(--accent)':'3px solid transparent'}}>
+            <div
+              key={m.id}
+              className="card"
+              style={{cursor:'pointer',borderLeft:m.direction==='CLIENT_TO_STAFF'?'3px solid var(--accent)':'3px solid #3b82f6',transition:'background 0.15s ease'}}
+              onClick={()=>openMessage(m)}
+              title="Click to open and read message thread"
+            >
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
-                    <span style={{fontSize:'13px',fontWeight:600,color:'var(--text-primary)'}}>{m.subject||'(no subject)'}</span>
-                    <span className={`badge ${m.direction==='CLIENT_TO_STAFF'?'badge-gold':'badge-blue'}`} style={{fontSize:'10px'}}>{m.direction==='CLIENT_TO_STAFF'?'FROM CLIENT':'TO CLIENT'}</span>
+                    <span style={{fontSize:'13.5px',fontWeight:600,color:'var(--text-primary)'}}>{m.subject||'(no subject)'}</span>
+                    <span className={`badge ${m.direction==='CLIENT_TO_STAFF'?'badge-gold':'badge-blue'}`} style={{fontSize:'10px'}}>
+                      {m.direction==='CLIENT_TO_STAFF'?'FROM CLIENT':'TO CLIENT'}
+                    </span>
                     {!m.isRead&&<span className="badge badge-blue" style={{fontSize:'10px'}}>NEW</span>}
                   </div>
-                  <p style={{fontSize:'12px',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'500px'}}>{m.body}</p>
-                  <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}}>Matter: {m.matter?.referenceNumber||'—'}</p>
+                  <p style={{fontSize:'12px',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'560px'}}>{m.body}</p>
+                  <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'4px'}}>
+                    Matter: <strong style={{color:'var(--text-secondary)'}}>{m.matter?.referenceNumber || m.matter?.title || '—'}</strong>
+                  </p>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0,marginLeft:'16px'}}>
                   <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt).toLocaleDateString('en-NG')}</p>
@@ -97,6 +148,41 @@ export default function ClientMessagingPage() {
           ))}
         </div>
       </main>
+
+      {/* Client Message Detail Modal */}
+      {selectedMessage && (
+        <div className="modal-backdrop" onClick={()=>setSelectedMessage(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:'640px',width:'95%'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',borderBottom:'1px solid var(--border)',paddingBottom:'12px'}}>
+              <div>
+                <div style={{display:'flex',alignItems:'center',gap:'8px',marginBottom:'4px'}}>
+                  <h3 style={{fontSize:'16px',fontWeight:700,color:'var(--text-primary)',margin:0}}>
+                    {selectedMessage.subject || '(no subject)'}
+                  </h3>
+                  <span className={`badge ${selectedMessage.direction==='CLIENT_TO_STAFF'?'badge-gold':'badge-blue'}`} style={{fontSize:'10px'}}>
+                    {selectedMessage.direction==='CLIENT_TO_STAFF'?'FROM CLIENT':'TO CLIENT'}
+                  </span>
+                </div>
+                <p style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                  Matter: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.matter?.referenceNumber} — {selectedMessage.matter?.title}</strong> · {new Date(selectedMessage.sentAt).toLocaleString('en-NG')}
+                </p>
+              </div>
+              <button className="btn btn-sm btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>
+            </div>
+
+            <div style={{background:'var(--surface)',padding:'16px',borderRadius:'8px',border:'1px solid var(--border)',minHeight:'140px',maxHeight:'360px',overflowY:'auto',fontSize:'13.5px',lineHeight:'1.6',color:'var(--text-primary)',whiteSpace:'pre-wrap'}}>
+              {selectedMessage.body}
+            </div>
+
+            <div style={{display:'flex',justifyContent:'flex-end',gap:'10px',marginTop:'18px'}}>
+              <button type="button" className="btn btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>
+              <button type="button" className="btn btn-primary" onClick={()=>handleReply(selectedMessage)}>
+                <Send size={14}/> Reply to Message
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showModal&&(
         <div className="modal-backdrop" onClick={()=>setShowModal(false)}>

@@ -15,29 +15,70 @@ export default function MessagesPage() {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<any | null>(null);
   const [form, setForm] = useState({ recipientId:'', subject:'', body:'' });
   const [saving, setSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('aalawsng-auth')) : null;
+    if (!isAuthenticated && !token) {
+      router.replace('/login');
+      return;
+    }
+    load();
+  }, [mounted, isAuthenticated]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [msgsRes, unreadRes, staffRes] = await Promise.all([
+      const [msgsRes, unreadRes, staffRes] = await Promise.allSettled([
         api.get('/internal-messages?limit=30'),
         api.get('/internal-messages/unread-count'),
         api.get('/staff?limit=100'),
       ]);
-      setMessages(msgsRes.data.messages || []);
-      setTotal(msgsRes.data.total || 0);
-      setUnread(unreadRes.data.unreadCount || 0);
-      setStaffList(staffRes.data.staff || []);
-    } catch {}
-    setLoading(false);
+
+      if (msgsRes.status === 'fulfilled') {
+        setMessages(msgsRes.value.data.messages || msgsRes.value.data || []);
+        setTotal(msgsRes.value.data.total || 0);
+      }
+      if (unreadRes.status === 'fulfilled') {
+        setUnread(unreadRes.value.data.unreadCount || 0);
+      }
+      if (staffRes.status === 'fulfilled') {
+        setStaffList(staffRes.value.data.staff || staffRes.value.data || []);
+      }
+    } catch (err) {
+      console.error('Failed to load internal messages:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const markRead = async (id: string) => {
-    try { await api.patch(`/internal-messages/${id}/read`); load(); } catch {}
+  const openMessage = async (msg: any) => {
+    setSelectedMessage(msg);
+    if (!msg.isRead) {
+      try {
+        await api.patch(`/internal-messages/${msg.id}/read`);
+        setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isRead: true } : m));
+        setUnread(prev => Math.max(0, prev - 1));
+      } catch {}
+    }
+  };
+
+  const handleReply = (msg: any) => {
+    setForm({
+      recipientId: msg.senderId || msg.sender?.id || '',
+      subject: msg.subject?.startsWith('Re:') ? msg.subject : `Re: ${msg.subject || ''}`,
+      body: `\n\n--- On ${new Date(msg.sentAt).toLocaleString('en-NG')}, ${msg.sender?.firstName || 'Colleague'} wrote: ---\n${msg.body}`,
+    });
+    setSelectedMessage(null);
+    setShowModal(true);
   };
 
   const handleSend = async (e: React.FormEvent) => {
@@ -84,19 +125,27 @@ export default function MessagesPage() {
               <p>No messages yet</p>
             </div>
           ) : messages.map((m:any)=>(
-            <div key={m.id} className="card" style={{cursor:'pointer',borderLeft:!m.isRead?'3px solid #60a5fa':'3px solid transparent'}} onClick={()=>markRead(m.id)}>
+            <div
+              key={m.id}
+              className="card"
+              style={{cursor:'pointer',borderLeft:!m.isRead?'3px solid #60a5fa':'3px solid transparent',transition:'background 0.15s ease'}}
+              onClick={()=>openMessage(m)}
+              title="Click to open and read full message"
+            >
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{display:'flex',alignItems:'center',gap:'10px',marginBottom:'4px'}}>
-                    <span style={{fontSize:'13px',fontWeight:600,color:m.isRead?'var(--text-secondary)':'var(--text-primary)'}}>{m.subject||'(no subject)'}</span>
+                    <span style={{fontSize:'13.5px',fontWeight:600,color:m.isRead?'var(--text-secondary)':'var(--text-primary)'}}>{m.subject||'(no subject)'}</span>
                     {!m.isRead&&<span className="badge badge-blue" style={{fontSize:'10px'}}>NEW</span>}
                     {m.replies?.length>0&&<span style={{fontSize:'11px',color:'var(--text-muted)',display:'flex',alignItems:'center',gap:'3px'}}><Reply size={10}/>{m.replies.length}</span>}
                   </div>
-                  <p style={{fontSize:'12px',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'500px'}}>{m.body}</p>
+                  <p style={{fontSize:'12px',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'560px'}}>{m.body}</p>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0,marginLeft:'16px'}}>
                   <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt).toLocaleDateString('en-NG')}</p>
-                  <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>{m.sender?.staffProfile?.firstName} {m.sender?.staffProfile?.lastName}</p>
+                  <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>
+                    {m.sender?.firstName ? `${m.sender.firstName} ${m.sender.lastName || ''}` : (m.sender?.staffProfile?.firstName ? `${m.sender.staffProfile.firstName} ${m.sender.staffProfile.lastName}` : 'Colleague')}
+                  </p>
                 </div>
               </div>
             </div>
@@ -104,6 +153,37 @@ export default function MessagesPage() {
         </div>
       </main>
 
+      {/* Message Reading Pane / Modal */}
+      {selectedMessage && (
+        <div className="modal-backdrop" onClick={()=>setSelectedMessage(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:'640px',width:'95%'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'16px',borderBottom:'1px solid var(--border)',paddingBottom:'12px'}}>
+              <div>
+                <h3 style={{fontSize:'16px',fontWeight:700,color:'var(--text-primary)',marginBottom:'4px'}}>
+                  {selectedMessage.subject || '(no subject)'}
+                </h3>
+                <p style={{fontSize:'12px',color:'var(--text-muted)'}}>
+                  From: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.sender?.firstName || 'Colleague'} {selectedMessage.sender?.lastName || ''}</strong> ({selectedMessage.sender?.role || 'Staff'}) · {new Date(selectedMessage.sentAt).toLocaleString('en-NG')}
+                </p>
+              </div>
+              <button className="btn btn-sm btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>
+            </div>
+
+            <div style={{background:'var(--surface)',padding:'16px',borderRadius:'8px',border:'1px solid var(--border)',minHeight:'140px',maxHeight:'360px',overflowY:'auto',fontSize:'13.5px',lineHeight:'1.6',color:'var(--text-primary)',whiteSpace:'pre-wrap'}}>
+              {selectedMessage.body}
+            </div>
+
+            <div style={{display:'flex',justifyContent:'flex-end',gap:'10px',marginTop:'18px'}}>
+              <button type="button" className="btn btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>
+              <button type="button" className="btn btn-primary" onClick={()=>handleReply(selectedMessage)}>
+                <Reply size={14}/> Reply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Compose Message Modal */}
       {showModal&&(
         <div className="modal-backdrop" onClick={()=>setShowModal(false)}>
           <div className="modal" onClick={e=>e.stopPropagation()}>

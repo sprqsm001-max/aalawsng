@@ -7,10 +7,39 @@ const router = Router();
 // Internal messaging: STAFF and ADMIN only — CLIENT users have ZERO access
 router.use(authenticate, requireTier('ADMIN', 'STAFF'));
 
+async function getOrResolveStaff(userId: string) {
+  let staff = await prisma.staffProfile.findFirst({ where: { userId } });
+  if (!staff) {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (user) {
+      staff = await prisma.staffProfile.findFirst({
+        where: { user: { email: { equals: user.email, mode: 'insensitive' } } },
+      });
+      if (staff && !staff.userId) {
+        staff = await prisma.staffProfile.update({
+          where: { id: staff.id },
+          data: { userId: user.id },
+        });
+      } else if (!staff && user.tier === 'ADMIN') {
+        staff = await prisma.staffProfile.create({
+          data: {
+            userId: user.id,
+            firstName: 'Managing',
+            lastName: 'Partner',
+            role: 'MANAGING_PARTNER',
+            phone: '+234 800 000 0000',
+          },
+        });
+      }
+    }
+  }
+  return staff;
+}
+
 // GET /api/v1/internal-messages — Inbox for current staff user
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
-    const staff = await prisma.staffProfile.findFirst({ where: { userId: req.user!.userId } });
+    const staff = await getOrResolveStaff(req.user!.userId);
     if (!staff) {
       res.status(400).json({ error: 'Staff profile required' });
       return;
@@ -46,7 +75,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', async (req: Request, res: Response): Promise<void> => {
   try {
     const { recipientId, subject, body } = req.body;
-    const staff = await prisma.staffProfile.findFirst({ where: { userId: req.user!.userId } });
+    const staff = await getOrResolveStaff(req.user!.userId);
     if (!staff) {
       res.status(400).json({ error: 'Staff profile required' });
       return;
@@ -87,7 +116,7 @@ router.patch('/:id/read', async (req: Request, res: Response): Promise<void> => 
 // GET /api/v1/internal-messages/unread-count
 router.get('/unread-count', async (req: Request, res: Response): Promise<void> => {
   try {
-    const staff = await prisma.staffProfile.findFirst({ where: { userId: req.user!.userId } });
+    const staff = await getOrResolveStaff(req.user!.userId);
     if (!staff) {
       res.json({ unreadCount: 0 });
       return;

@@ -22,25 +22,51 @@ export default function CalendarPage() {
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ title:'', type:'COURT_DATE', eventDate:'', matterId:'', isHardDeadline: false, description:'' });
   const [saving, setSaving] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => { if (!isAuthenticated) router.replace('/login'); else load(); }, []);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const token = typeof window !== 'undefined' ? (localStorage.getItem('accessToken') || localStorage.getItem('aalawsng-auth')) : null;
+    if (!isAuthenticated && !token) {
+      router.replace('/login');
+      return;
+    }
+    load();
+  }, [mounted, isAuthenticated]);
 
   const load = async () => {
     setLoading(true);
     try {
       const now = new Date();
       const from = now.toISOString().split('T')[0];
-      const to = new Date(now.setMonth(now.getMonth()+3)).toISOString().split('T')[0];
-      const [evRes, dlRes, mRes] = await Promise.all([
+      const future = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+      const to = future.toISOString().split('T')[0];
+
+      const [evRes, dlRes, mRes] = await Promise.allSettled([
         api.get(`/calendar?from=${from}&to=${to}`),
         api.get('/calendar/upcoming-deadlines?days=30'),
         api.get('/matters?limit=100'),
       ]);
-      setEvents(evRes.data || []);
-      setDeadlines(dlRes.data || []);
-      setMatters(mRes.data.matters || []);
-    } catch {}
-    setLoading(false);
+
+      if (evRes.status === 'fulfilled') {
+        setEvents(Array.isArray(evRes.value.data) ? evRes.value.data : (evRes.value.data?.events || []));
+      }
+      if (dlRes.status === 'fulfilled') {
+        setDeadlines(Array.isArray(dlRes.value.data) ? dlRes.value.data : (dlRes.value.data?.deadlines || []));
+      }
+      if (mRes.status === 'fulfilled') {
+        const mData = mRes.value.data;
+        setMatters(mData.matters || (Array.isArray(mData) ? mData : []));
+      }
+    } catch (err) {
+      console.error('Failed to load calendar:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
