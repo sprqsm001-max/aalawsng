@@ -43,12 +43,13 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.post('/auth/login', { email, password });
+      const cleanEmail = email.trim().toLowerCase();
+      const { data } = await api.post('/auth/login', { email: cleanEmail, password });
       login(data.user, data.accessToken, data.refreshToken);
 
       // Save for quick biometric sign-in if opted-in
       if (enableBiometricsOnLogin) {
-        await registerBiometricLogin(email, data.accessToken, data.refreshToken, data.user);
+        await registerBiometricLogin(cleanEmail, data.accessToken, data.refreshToken, data.user);
       }
 
       if (data.user.tier === 'CLIENT') router.push('/portal');

@@ -9,12 +9,12 @@ import { createAuditLog } from '../middleware/audit';
 const router = Router();
 
 const LoginSchema = z.object({
-  email: z.string().email().transform((val) => val.trim().toLowerCase()),
+  email: z.preprocess((val) => (typeof val === 'string' ? val.trim().toLowerCase() : val), z.string().email()),
   password: z.string().min(1),
 });
 
 const RegisterSchema = z.object({
-  email: z.string().email().transform((val) => val.trim().toLowerCase()),
+  email: z.preprocess((val) => (typeof val === 'string' ? val.trim().toLowerCase() : val), z.string().email()),
   password: z.string().min(8),
   tier: z.enum(['ADMIN', 'STAFF', 'CLIENT']),
   firstName: z.string().min(1),
