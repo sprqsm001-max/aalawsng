@@ -696,11 +696,28 @@
     margin: 10mm 12mm 10mm 12mm;
   }
 
-  html, body {
+  *, *::before, *::after {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
+  html,
+  body,
+  .dashboard-layout,
+  main,
+  .main-content,
+  .modal-backdrop,
+  .modal,
+  .invoice-modal-sheet {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #111827 !important;
     margin: 0 !important;
     padding: 0 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    border: none !important;
+    box-shadow: none !important;
     font-size: 11pt !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -723,7 +740,9 @@
   /* Flatten modal containers so only the printable sheet appears */
   .modal-backdrop {
     position: static !important;
-    background: transparent !important;
+    display: block !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     padding: 0 !important;
     margin: 0 !important;
     overflow: visible !important;
@@ -731,9 +750,11 @@
     backdrop-filter: none !important;
   }
 
-  .modal {
+  .modal,
+  .invoice-modal-sheet {
     position: static !important;
-    background: transparent !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     border: none !important;
     box-shadow: none !important;
     padding: 0 !important;
@@ -744,6 +765,7 @@
 
   .printable-invoice {
     background: #ffffff !important;
+    background-color: #ffffff !important;
     color: #111827 !important;
     border: none !important;
     box-shadow: none !important;

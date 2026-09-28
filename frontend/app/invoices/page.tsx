@@ -511,7 +511,7 @@ export default function InvoicesPage() {
       {/* Invoice Detail / Printable Bill of Costs Modal */}
       {selectedInvoice && (
         <div className="modal-backdrop" onClick={() => setSelectedInvoice(null)} style={{ overflowY: 'auto', padding: '24px 0', zIndex: 1100 }}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '860px', width: '95%', margin: 'auto', padding: '20px', background: '#0a0d14' }}>
+          <div className="modal invoice-modal-sheet" onClick={e => e.stopPropagation()} style={{ maxWidth: '860px', width: '95%', margin: 'auto', padding: '20px' }}>
             {/* Action Bar (strictly hidden on print) */}
             <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px', paddingBottom: '14px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
