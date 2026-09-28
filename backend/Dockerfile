@@ -5,7 +5,7 @@ COPY package*.json ./
 COPY tsconfig.json ./
 RUN npm ci
 COPY prisma ./prisma
-RUN npx prisma generate
+RUN sed -i 's/provider = "sqlite"/provider = "postgresql"/g' prisma/schema.prisma && npx prisma generate
 COPY . .
 RUN npm run build
 

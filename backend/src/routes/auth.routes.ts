@@ -9,12 +9,12 @@ import { createAuditLog } from '../middleware/audit';
 const router = Router();
 
 const LoginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(8),
+  email: z.string().email().transform((val) => val.trim().toLowerCase()),
+  password: z.string().min(1),
 });
 
 const RegisterSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((val) => val.trim().toLowerCase()),
   password: z.string().min(8),
   tier: z.enum(['ADMIN', 'STAFF', 'CLIENT']),
   firstName: z.string().min(1),
@@ -129,10 +129,22 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = LoginSchema.parse(req.body);
-    const user = await prisma.user.findUnique({
+    let user: any = await prisma.user.findUnique({
       where: { email },
       include: { staffProfile: true, clientProfile: true },
     });
+
+    if (!user) {
+      user = await prisma.user.findFirst({
+        where: {
+          email: {
+            equals: email,
+            mode: 'insensitive',
+          },
+        },
+        include: { staffProfile: true, clientProfile: true },
+      });
+    }
 
     if (!user || !user.isActive) {
       res.status(401).json({ error: 'Invalid credentials' });
@@ -173,11 +185,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       accessToken, refreshToken,
     });
   } catch (err: any) {
+    console.error('Login error:', err);
     if (err.name === 'ZodError') {
       res.status(400).json({ error: 'Validation error', details: err.errors });
       return;
     }
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed', details: err?.message });
   }
 });
 
