@@ -107,12 +107,12 @@ export default function CalendarPage() {
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(280px,1fr))', gap:'8px' }}>
               {deadlines.slice(0,6).map((d:any) => {
-                const daysLeft = Math.ceil((new Date(d.eventDate).getTime() - Date.now())/(1000*60*60*24));
+                const daysLeft = d.eventDate ? Math.ceil((new Date(d.eventDate).getTime() - Date.now())/(1000*60*60*24)) : 0;
                 return (
                   <div key={d.id} style={{ background:'var(--surface)', borderRadius:'8px', padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                     <div>
                       <p style={{ fontSize:'13px', color:'var(--text-primary)', fontWeight:500 }}>{d.title}</p>
-                      <p style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px' }}>{d.matter?.referenceNumber} · {new Date(d.eventDate).toLocaleDateString('en-NG')}</p>
+                      <p style={{ fontSize:'11px', color:'var(--text-muted)', marginTop:'2px' }}>{d.matter?.referenceNumber || 'General'} · {d.eventDate ? new Date(d.eventDate).toLocaleDateString('en-NG') : '—'}</p>
                     </div>
                     <span className={`badge ${daysLeft<=3?'badge-red':daysLeft<=7?'badge-yellow':'badge-blue'}`}>{daysLeft}d</span>
                   </div>
@@ -129,15 +129,18 @@ export default function CalendarPage() {
             <tbody>
               {loading ? [...Array(6)].map((_,i)=><tr key={i}>{[...Array(5)].map((_,j)=><td key={j}><div className="skeleton" style={{height:'14px',borderRadius:'4px'}}/></td>)}</tr>)
               : events.length===0 ? <tr><td colSpan={5} style={{textAlign:'center',padding:'40px',color:'var(--text-muted)'}}>No events found</td></tr>
-              : events.map((ev:any) => (
-                <tr key={ev.id}>
-                  <td style={{color:'var(--text-primary)',fontWeight:500}}>{ev.title}</td>
-                  <td><span className={`badge ${typeColor[ev.type]||'badge-gray'}`}>{ev.type.replace(/_/g,' ')}</span></td>
-                  <td style={{fontSize:'13px'}}>{new Date(ev.eventDate).toLocaleDateString('en-NG',{dateStyle:'medium'})}</td>
-                  <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{ev.matter?.referenceNumber||'—'}</td>
-                  <td>{ev.isHardDeadline ? <span className="badge badge-red">YES</span> : <span className="badge badge-gray">No</span>}</td>
-                </tr>
-              ))}
+              : events.map((ev:any) => {
+                const evType = ev.eventType || ev.type || 'OTHER';
+                return (
+                  <tr key={ev.id}>
+                    <td style={{color:'var(--text-primary)',fontWeight:500}}>{ev.title}</td>
+                    <td><span className={`badge ${typeColor[evType]||'badge-gray'}`}>{evType.replace(/_/g,' ')}</span></td>
+                    <td style={{fontSize:'13px'}}>{ev.eventDate ? new Date(ev.eventDate).toLocaleDateString('en-NG',{dateStyle:'medium'}) : '—'}</td>
+                    <td style={{fontSize:'12px',color:'var(--text-muted)'}}>{ev.matter?.referenceNumber||'—'}</td>
+                    <td>{ev.isHardDeadline ? <span className="badge badge-red">YES</span> : <span className="badge badge-gray">No</span>}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -140,7 +140,7 @@ export default function ClientMessagingPage() {
                   </p>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0,marginLeft:'16px'}}>
-                  <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt).toLocaleDateString('en-NG')}</p>
+                  <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt || m.createdAt || Date.now()).toLocaleDateString('en-NG')}</p>
                   {m.replies?.length>0&&<p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>{m.replies.length} replies</p>}
                 </div>
               </div>
@@ -164,7 +164,7 @@ export default function ClientMessagingPage() {
                   </span>
                 </div>
                 <p style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                  Matter: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.matter?.referenceNumber} — {selectedMessage.matter?.title}</strong> · {new Date(selectedMessage.sentAt).toLocaleString('en-NG')}
+                  Matter: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.matter?.referenceNumber} — {selectedMessage.matter?.title}</strong> · {new Date(selectedMessage.sentAt || selectedMessage.createdAt || Date.now()).toLocaleString('en-NG')}
                 </p>
               </div>
               <button className="btn btn-sm btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>

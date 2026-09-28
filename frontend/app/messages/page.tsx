@@ -142,7 +142,7 @@ export default function MessagesPage() {
                   <p style={{fontSize:'12px',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'560px'}}>{m.body}</p>
                 </div>
                 <div style={{textAlign:'right',flexShrink:0,marginLeft:'16px'}}>
-                  <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt).toLocaleDateString('en-NG')}</p>
+                  <p style={{fontSize:'11px',color:'var(--text-muted)'}}>{new Date(m.sentAt || m.createdAt || Date.now()).toLocaleDateString('en-NG')}</p>
                   <p style={{fontSize:'11px',color:'var(--text-muted)',marginTop:'2px'}}>
                     {m.sender?.firstName ? `${m.sender.firstName} ${m.sender.lastName || ''}` : (m.sender?.staffProfile?.firstName ? `${m.sender.staffProfile.firstName} ${m.sender.staffProfile.lastName}` : 'Colleague')}
                   </p>
@@ -163,7 +163,7 @@ export default function MessagesPage() {
                   {selectedMessage.subject || '(no subject)'}
                 </h3>
                 <p style={{fontSize:'12px',color:'var(--text-muted)'}}>
-                  From: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.sender?.firstName || 'Colleague'} {selectedMessage.sender?.lastName || ''}</strong> ({selectedMessage.sender?.role || 'Staff'}) · {new Date(selectedMessage.sentAt).toLocaleString('en-NG')}
+                  From: <strong style={{color:'var(--text-primary)'}}>{selectedMessage.sender?.firstName || 'Colleague'} {selectedMessage.sender?.lastName || ''}</strong> ({selectedMessage.sender?.role || 'Staff'}) · {new Date(selectedMessage.sentAt || selectedMessage.createdAt || Date.now()).toLocaleString('en-NG')}
                 </p>
               </div>
               <button className="btn btn-sm btn-secondary" onClick={()=>setSelectedMessage(null)}>Close</button>
